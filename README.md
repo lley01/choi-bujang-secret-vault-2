@@ -22,6 +22,8 @@
 | `originalApiUrl` | `https://iaifwhhyhzyacfdwziuo.supabase.co/rest/v1/notes` | 쿼리 없는 원본 자료 HTTPS 경로, 즉 학습 DB(Supabase)의 메모 자료 API입니다. 공개 키·시험 계정 토큰으로 직접 부르면 `403 42501`로 막힙니다(5단계 고침, 브라우저에서 확인). |
 | `judgeIssuer` | 운영 측이 채운 값 | 바꾸지 않았습니다. |
 
+- 심판은 배포된 사이트의 `/aleph.json`에서 `originalApiUrl`을 읽습니다. 배포 빌드(`scripts/deployment-identity.mjs`)가 5단계부터 이 값을 `/aleph.json`에 함께 싣습니다. https가 아니거나 쿼리·계정 정보가 붙어 있으면 빌드를 멈춥니다(판정 `S05_ORIGINAL_URL_MISSING` 고침).
+
 **DB 직접 권한**
 
 - 메모 테이블의 PUBLIC·anon·authenticated 직접 권한을 거두는 SQL은 저장소 밖에서 제안했습니다. 실행했는지는 이 저장소로 확인할 수 없으니 그 SQL의 ①·③ 확인 쿼리로 보세요.

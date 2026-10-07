@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, rmSync } from 'node:fs';
 import { test } from 'node:test';
 import { deploymentIdentity } from '../scripts/deployment-identity.mjs';
 import { runAttackChecks } from '../src/attack-check.mjs';
@@ -89,4 +90,35 @@ test('거부되지 않고 자료가 돌아오면 그대로 거부되지 않음�
   const { results } = await withFetch(leak, () => runAttackChecks(appConfig));
   for (const item of results.slice(1, 6)) assert.match(item.observed, /거부되지 않음/u, item.attackId);
   assert.ok(!JSON.stringify(results).includes('실습용 가상 본문'));
+});
+
+test('배포 파일(/aleph.json)의 식별 정보에 5단계부터 https로 시작하는 originalApiUrl이 실린다(심판이 읽는 곳)', () => {
+  const identity = deploymentIdentity(vercelEnv, config);
+  assert.equal(identity.originalApiUrl, config.originalApiUrl);
+  assert.ok(identity.originalApiUrl.startsWith('https://'));
+  assert.equal('originalApiUrl' in deploymentIdentity(vercelEnv, { ...config, step: 4 }), false, '4단계 이하의 형식은 그대로');
+});
+
+test('원본 주소가 없거나 https가 아니거나 쿼리·계정 정보가 붙으면 배포 식별 파일을 만들지 않는다', () => {
+  const host = new URL(config.originalApiUrl).host;
+  for (const originalApiUrl of [null, undefined, '', `http://${host}/rest/v1/notes`, `https://${host}/rest/v1/notes?apikey=x`,
+    `https://${host}/rest/v1/notes#x`, `https://user:pw@${host}/rest/v1/notes`, 'https://', 'not a url']) {
+    assert.throws(() => deploymentIdentity(vercelEnv, { ...config, originalApiUrl }), /originalApiUrl/u, String(originalApiUrl));
+  }
+});
+
+test('실제 빌드(Vercel 흉내)가 만든 public/aleph.json에 originalApiUrl이 들어 있다', () => {
+  const output = new URL('../public/aleph.json', import.meta.url);
+  try {
+    execFileSync(process.execPath, ['scripts/build-public.mjs'], {
+      cwd: new URL('..', import.meta.url), stdio: 'pipe', env: { ...process.env, ...vercelEnv },
+    });
+    const written = JSON.parse(readFileSync(output, 'utf8'));
+    assert.equal(written.step, 5);
+    assert.equal(written.originalApiUrl, config.originalApiUrl);
+    assert.match(written.originalApiUrl, /^https:\/\/[^?#]+$/u);
+    assert.doesNotMatch(JSON.stringify(written), /sb_(publishable|secret)_|eyJ[A-Za-z0-9_-]{12,}/u, '키·토큰이 들어가면 안 됩니다');
+  } finally {
+    rmSync(output, { force: true });
+  }
 });
