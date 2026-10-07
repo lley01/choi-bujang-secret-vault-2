@@ -1,10 +1,14 @@
 {
   "step": 2,
   "repoUrl": "https://replace-with-your-github-repo.example",
-  "publicAppUrl": "https://replace-with-your-vercel-app.example",
+  "publicAppUrl": "https://lley01-choi-bujang-secret-vault-git-main-lley01.vercel.app/",
   "sampleMarker": "SAMPLE_NOTE_1",
   "judgeIssuer": "https://aleph-judge-production.up.railway.app/defense/judge",
-  "identityProvider": null,
+  "identityProvider": {
+    "issuer": "https://iaifwhhyhzyacfdwziuo.supabase.co/auth/v1",
+    "audience": "authenticated",
+    "jwksUrl": "https://iaifwhhyhzyacfdwziuo.supabase.co/auth/v1/.well-known/jwks.json"
+  },
   "allowedRoutes": [],
   "originalApiUrl": null,
   "restoreRoute": null

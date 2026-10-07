@@ -32,7 +32,7 @@
     <div class="eyebrow">BYTE BACK · 3단계 로그인 화면</div>
     <h1>점령된 자료실</h1>
     <p>자료는 코드 밖(Supabase)에 있고, 서버 함수가 대신 읽어 옵니다. 아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
-    <div class="notice">로그인·로그아웃 화면만 붙은 상태입니다. 서버 함수 주소(/api/notes)는 아직 로그인과 상관없이 공개이고, 로그인하지 않은 방문자도 자료를 볼 수 있습니다. 다음 제작 단계에서 접근을 차례로 막아 주세요.</div>
+    <div class="notice">서버 함수(/api/notes)가 로그인 토큰을 확인합니다. 로그인하지 않았거나 토큰 검사에 실패하면 자료를 받을 수 없습니다.</div>
     <section class="auth" aria-labelledby="auth-title">
       <h2 id="auth-title">로그인</h2>
       <p id="auth-status" role="status">로그인하지 않았습니다.</p>
@@ -50,7 +50,7 @@
       </div>
       <p id="auth-error" class="error" role="alert" hidden></p>
     </section>
-    <ul id="notes" aria-live="polite"><li>가상 자료를 불러오는 중입니다.</li></ul>
+    <ul id="notes" aria-live="polite"><li>로그인하면 가상 자료를 볼 수 있습니다.</li></ul>
   </main>
   <script src="/vendor/supabase.js"></script>
   <script>
@@ -96,6 +96,49 @@
           .filter(Boolean).join(' · ');
         return `${fallback}${detail ? ` (${detail})` : ''}`;
       }
+      // 로그인 토큰은 같은 사이트의 /api/notes 요청 헤더에만 싣습니다. 화면에 보이거나 기록하지 않습니다.
+      const list = document.querySelector('#notes');
+      let loadId = 0;
+      let loadedToken;
+      function showListMessage(text) {
+        const item = document.createElement('li');
+        item.textContent = text;
+        list.replaceChildren(item);
+      }
+      async function loadNotes(accessToken) {
+        const myId = ++loadId;
+        if (!accessToken) {
+          showListMessage('로그인하면 가상 자료를 볼 수 있습니다.');
+          return;
+        }
+        showListMessage('가상 자료를 불러오는 중입니다.');
+        try {
+          const response = await fetch('/api/notes', {
+            cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (myId !== loadId) return;
+          if (response.status === 401) {
+            throw new Error('서버가 로그인을 확인하지 못해 자료를 보내지 않았습니다(HTTP 401). 로그아웃한 뒤 다시 로그인해 보세요.');
+          }
+          if (!response.ok) throw new Error(`자료를 읽을 수 없습니다. (HTTP ${response.status})`);
+          const data = await response.json();
+          if (myId !== loadId) return;
+          if (!Array.isArray(data.notes)) throw new Error('자료 형식이 맞지 않습니다.');
+          list.replaceChildren(...data.notes.map(note => {
+            const item = document.createElement('li');
+            const title = document.createElement('strong');
+            const content = document.createElement('span');
+            title.textContent = note.title;
+            content.textContent = note.content;
+            item.append(title, content);
+            return item;
+          }));
+        } catch (error) {
+          if (myId !== loadId) return;
+          showListMessage(error?.name === 'TypeError'
+            ? '네트워크 문제로 자료를 읽지 못했습니다. 연결을 확인하세요.' : error.message);
+        }
+      }
       function render(session) {
         const email = session?.user?.email;
         form.hidden = Boolean(session);
@@ -103,6 +146,11 @@
         status.textContent = session
           ? `로그인됨: ${email ?? '(이메일 정보 없음)'}`
           : '로그인하지 않았습니다.';
+        const token = session?.access_token ?? null;
+        if (token !== loadedToken) {
+          loadedToken = token;
+          loadNotes(token);
+        }
       }
 
       if (typeof window.supabase?.createClient !== 'function') {
@@ -152,28 +200,6 @@
         }
       });
     })();
-  </script>
-  <script type="module">
-    const list = document.querySelector('#notes');
-    try {
-      const response = await fetch('/api/notes', { cache: 'no-store' });
-      if (!response.ok) throw new Error('자료를 읽을 수 없습니다.');
-      const data = await response.json();
-      if (!Array.isArray(data.notes)) throw new Error('자료 형식이 맞지 않습니다.');
-      list.replaceChildren(...data.notes.map(note => {
-        const item = document.createElement('li');
-        const title = document.createElement('strong');
-        const content = document.createElement('span');
-        title.textContent = note.title;
-        content.textContent = note.content;
-        item.append(title, content);
-        return item;
-      }));
-    } catch (error) {
-      const item = document.createElement('li');
-      item.textContent = error.message;
-      list.replaceChildren(item);
-    }
   </script>
 </body>
 </html>

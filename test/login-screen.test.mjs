@@ -35,3 +35,10 @@ test('빌드가 공식 SDK의 브라우저용 파일을 public/vendor로 복사�
   assert.ok(statSync(sdk).size > 10000);
   assert.match(readFileSync(sdk, 'utf8'), /createClient/u);
 });
+
+test('화면은 로그인 토큰을 Authorization 헤더로만 보내고 userId·role을 따로 보내지 않는다', () => {
+  assert.match(page, /headers: \{ Authorization: `Bearer \$\{accessToken\}` \}/u);
+  for (const forbidden of [/x-user-id/iu, /userId/u, /[?&]role=/u, /x-role/iu]) {
+    assert.doesNotMatch(page, forbidden);
+  }
+});

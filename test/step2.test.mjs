@@ -5,6 +5,8 @@ import { createNotesHandler } from '../api/notes.js';
 import { runAttackChecks } from '../src/attack-check.mjs';
 
 // 아래 값은 모두 시험용 가짜 값입니다. 실제 URL이나 키를 넣지 마세요.
+// 이 파일은 자료 조회 경로만 봅니다. 로그인 토큰 검사는 test/login-api.test.mjs가 진짜 도우미로 확인합니다.
+const loggedIn = async () => ({ kind: 'student', userId: '00000000-0000-4000-8000-000000000001' });
 const FAKE_ENV = { SUPABASE_URL: 'https://dummy-project.example', SUPABASE_SECRET_KEY: 'dummy-server-key' };
 
 function fakeResponse() {
@@ -64,7 +66,7 @@ test('/api/notes는 title·content만 돌려주고 키를 응답·로그에 넣�
     { id: 'x1', owner_id: 'o1', title: '과제', content: '실습용 가상 과제 기록' },
     { id: 'x2', owner_id: null, title: '포트폴리오', content: '실습용 가상 포트폴리오 기록' },
   ];
-  const handler = createNotesHandler({ env: FAKE_ENV, createSupabase: fakeSupabase({ data: rows, error: null }, calls) });
+  const handler = createNotesHandler({ env: FAKE_ENV, createSupabase: fakeSupabase({ data: rows, error: null }, calls), verifyLogin: loggedIn });
   const { response, out } = fakeResponse();
   const logs = await withCapturedErrors(() => handler({ method: 'GET' }, response));
   assert.equal(out.status, 200);
@@ -86,7 +88,7 @@ test('/api/notes는 Supabase 오류 때 오류 코드만 기록하고 500으로 
     fakeSupabase({ data: null, error }, []),
     () => { throw new Error(FAKE_ENV.SUPABASE_SECRET_KEY); },
   ]) {
-    const handler = createNotesHandler({ env: FAKE_ENV, createSupabase });
+    const handler = createNotesHandler({ env: FAKE_ENV, createSupabase, verifyLogin: loggedIn });
     const { response, out } = fakeResponse();
     const logs = await withCapturedErrors(() => handler({ method: 'GET' }, response));
     assert.equal(out.status, 500);
@@ -104,28 +106,34 @@ test('공개 data.json에는 메모가 남지 않는다', () => {
   assert.doesNotMatch(page, /fetch\('\/data\.json'/u);
 });
 
-test('2단계 자기 점검은 /data.json 제거와 /api/notes 공개 약점을 실제 응답대로 기록한다', async () => {
+test('자기 점검은 /data.json 제거와 /api/notes의 토큰 거부를 실제 응답대로 기록한다', async () => {
   const config = { step: 2, sampleMarker: 'SAMPLE_NOTE_1', publicAppUrl: 'https://student-defense.vercel.app' };
   const originalFetch = globalThis.fetch;
   const requested = [];
   try {
-    globalThis.fetch = async (url) => {
-      requested.push(String(url));
+    globalThis.fetch = async (url, init = {}) => {
+      requested.push({ url: String(url), authorization: init.headers?.Authorization });
       if (String(url).endsWith('/data.json')) return new Response('not found', { status: 404 });
-      return new Response(JSON.stringify({ notes: [{ title: '가상', content: '실습용 가상 본문' }] }), { status: 200 });
+      return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401 });
     };
     const results = await runAttackChecks(config);
-    assert.deepEqual(requested, [
+    assert.deepEqual(requested.map((item) => item.url), [
       'https://student-defense.vercel.app/data.json',
       'https://student-defense.vercel.app/api/notes',
+      'https://student-defense.vercel.app/api/notes',
     ]);
+    assert.deepEqual(requested.map((item) => item.authorization), [undefined, undefined, 'Bearer aaaaaaaa.bbbbbbbb.cccccccc']);
     assert.match(results[0].observed, /보이지 않음 \(HTTP 404\)/u);
-    assert.match(results[1].observed, /가상 메모를 돌려줌/u);
-    assert.ok(!JSON.stringify(results).includes('실습용 가상 본문'));
+    assert.match(results[1].observed, /자료 없이 거부됨 \(HTTP 401\)/u);
+    assert.match(results[2].observed, /자료 없이 거부됨 \(HTTP 401\)/u);
+    assert.deepEqual(results.map((item) => item.attackId), ['anonymous_note_read', 'anonymous_notes_api_read', 'forged_token_notes_api_read']);
 
-    globalThis.fetch = async () => new Response(JSON.stringify({ notes: [{ title: 'a', content: 'b' }] }), { status: 200 });
+    globalThis.fetch = async () => new Response(JSON.stringify({ notes: [{ title: 'a', content: '실습용 가상 본문' }] }), { status: 200 });
     const leaked = await runAttackChecks(config);
     assert.match(leaked[0].observed, /아직 보임/u);
+    assert.match(leaked[1].observed, /거부되지 않음/u);
+    assert.match(leaked[2].observed, /거부되지 않음/u);
+    assert.ok(!JSON.stringify(leaked).includes('실습용 가상 본문'));
   } finally {
     globalThis.fetch = originalFetch;
   }
