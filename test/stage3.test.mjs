@@ -11,8 +11,8 @@ const vercelEnv = {
   VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40), VERCEL_URL: 'defense-app-abc123.vercel.app',
 };
 
-test('설정은 3단계이고 bundle.mjs가 3단계부터 요구하는 발급자 정보와 허용 경로를 갖춘다', () => {
-  assert.equal(config.step, 3);
+test('설정은 3단계 이상이고 bundle.mjs가 3단계부터 요구하는 발급자 정보와 허용 경로를 갖춘다', () => {
+  assert.ok(config.step >= 3, '3단계 이상');
   for (const key of ['issuer', 'audience', 'jwksUrl']) assert.ok(config.identityProvider?.[key]?.trim(), `identityProvider.${key}`);
   assert.ok(Array.isArray(config.allowedRoutes) && config.allowedRoutes.length > 0);
   assert.match(config.repoUrl, /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/u, 'repoUrl은 실제 GitHub 저장소 주소여야 합니다(자리표시자 금지)');
@@ -29,11 +29,11 @@ test('로그인 발급자 정보는 화면이 쓰는 Supabase 프로젝트와 �
   assert.equal(config.identityProvider.jwksUrl, `${projectUrl}/auth/v1/.well-known/jwks.json`);
 });
 
-test('배포 식별 정보는 1~3단계를 받아들이고 4단계 이상이나 엉뚱한 값은 거부한다', () => {
+test('배포 식별 정보는 1~3단계를 받아들이고 엉뚱한 값은 거부한다(4단계는 test/stage4.test.mjs)', () => {
   for (const step of [1, 2, 3]) {
     assert.equal(deploymentIdentity(vercelEnv, { ...config, step }).step, step);
   }
-  for (const step of [0, 4, 5, '3', undefined]) {
+  for (const step of [0, 5, '3', undefined]) {
     assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step }), /배포 식별 정보를 확인할 수 없습니다/u);
   }
 });
@@ -59,7 +59,7 @@ test('3단계 자기 점검은 거부 점검을 실제 응답대로 기록하고
       assert.ok(result.expected.length <= 300 && result.observed.length <= 300);
       assert.match(result.attackId, /^[a-z0-9][a-z0-9_.-]{0,79}$/iu);
     }
-    await assert.rejects(runAttackChecks({ ...config, step: 4, publicAppUrl: 'https://student-defense.vercel.app/' }), /이 단계의 공격 점검/u);
+    await assert.rejects(runAttackChecks({ ...config, step: 5, publicAppUrl: 'https://student-defense.vercel.app/' }), /이 단계의 공격 점검/u);
   } finally {
     globalThis.fetch = originalFetch;
   }

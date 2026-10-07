@@ -11,6 +11,7 @@
     "test:login-api": "node --test test/login-api.test.mjs",
     "test:notes-api": "node --test test/notes-crud.test.mjs",
     "test:stage3": "node --test test/stage3.test.mjs",
+    "test:stage4": "node --test test/stage4.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "detect:test": "node scripts/detect-test.mjs",

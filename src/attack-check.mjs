@@ -21,7 +21,7 @@ const noteList = (data) => (Array.isArray(data) ? data : data?.notes);
 const hasNotes = (data) => Array.isArray(noteList(data)) && noteList(data).length > 0;
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -75,6 +75,11 @@ export async function runAttackChecks(config) {
     // 정상 로그인 요청은 학생 비밀번호나 심판이 발급한 토큰이 있어야 보낼 수 있습니다. 보내지 않았으므로 성공으로 쓰지 않고 미실행으로 남깁니다.
     results.push({ attackId: 'normal_login_notes_read', expected: '정상 로그인(심판 A 또는 학생)으로 /api/notes를 요청하면 자기 메모 목록을 받음',
       observed: '미실행: 로그인 토큰이 필요해 이 점검에서는 요청을 보내지 않음' });
+  }
+  if (config.step >= 4) {
+    // 소유자 검사는 서로 다른 두 사용자의 로그인 토큰이 있어야 확인할 수 있습니다. 보내지 않았으므로 미실행으로 남깁니다.
+    results.push({ attackId: 'other_owner_note_access', expected: '로그인한 B가 A의 메모 id로 GET·PUT·DELETE를 보내면 404로 거부되고 A의 메모는 그대로',
+      observed: '미실행: 서로 다른 두 사용자의 로그인 토큰이 필요해 이 점검에서는 요청을 보내지 않음' });
   }
   return results;
 }

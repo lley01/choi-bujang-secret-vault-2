@@ -3,8 +3,9 @@
 // - 토큰이 없거나 검사에 실패하면 자료 없이 401로 거부합니다.
 // - 신원은 검사 결과(userId)에서만 얻습니다. 브라우저가 보낸 userId·owner_id·role 같은 값은 읽지 않습니다.
 // - 추가(POST)할 때는 서버가 확인한 userId를 owner_id로 저장합니다. 목록(GET)은 그 사용자의 메모만 돌려줍니다.
-// - 알려진 허점(4단계에서 고칠 것): 한 건 조회·수정·삭제(/:id)는 아직 소유자를 검사하지 않습니다.
-//   그래서 로그인한 B가 A의 메모 id를 알면 읽고 고치고 지울 수 있습니다.
+// - 4단계 소유자 검사: 한 건 조회·수정·삭제(/:id)는 id와 owner_id(=확인된 본인 ID)를 한 질의에서 함께 맞춥니다.
+//   남의 메모나 주인 없는 메모는 '없는 메모'와 똑같이 404로 답해, 그 id가 있는지조차 알려 주지 않습니다.
+//   수정은 기존 행의 주인이 본인일 때만 바꾸고, 새 행의 주인도 확인된 본인 ID로 저장한 뒤 결과를 다시 확인합니다.
 // SUPABASE_URL 과 SUPABASE_SECRET_KEY 는 Vercel 환경변수(비밀 입력란)에서만 읽습니다.
 // 키와 토큰은 코드·응답·로그에 넣지 않습니다. 로그에는 고정된 오류 이름과 오류 코드만 남깁니다.
 import { createClient } from '@supabase/supabase-js';
@@ -112,7 +113,8 @@ export function createNotesService({ env = process.env, createSupabase = createC
       fail(response, 500, 'NOTES_UNAVAILABLE');
       return null;
     }
-    return { identity, supabase };
+    // 검사기는 대문자가 섞인 UUID도 통과시킵니다. DB가 돌려주는 uuid(소문자)와 비교할 수 있도록 소문자로 맞춥니다.
+    return { identity, me: identity.userId.toLowerCase(), supabase };
   }
 
   const upstreamFailed = (response, error, name) => {
@@ -124,11 +126,11 @@ export function createNotesService({ env = process.env, createSupabase = createC
   async function collection(request, response) {
     const entered = await enter(request, response, ['GET', 'POST'], 'collection');
     if (!entered) return undefined;
-    const { identity, supabase } = entered;
+    const { me, supabase } = entered;
     try {
       if (request.method === 'GET') {
         const { data, error } = await supabase.from('notes').select(COLUMNS)
-          .eq('owner_id', identity.userId)
+          .eq('owner_id', me)
           .order('created_at', { ascending: true }).order('id', { ascending: true }).limit(MAX_LIST);
         if (error || !Array.isArray(data)) return upstreamFailed(response, error, 'NOTES_LIST_FAILED');
         return response.status(200).json(data.map(toNote));
@@ -142,7 +144,7 @@ export function createNotesService({ env = process.env, createSupabase = createC
       if (hasId && (typeof input.id !== 'string' || !UUID.test(input.id))) return fail(response, 400, 'INVALID_ID');
       const id = hasId ? input.id.toLowerCase() : generateId();
       const { error } = await supabase.from('notes').insert({
-        id, owner_id: identity.userId, title: fields.title, content: fields.content,
+        id, owner_id: me, title: fields.title, content: fields.content,
       });
       if (error?.code === '23505') return fail(response, 409, 'ID_EXISTS');
       if (error) return upstreamFailed(response, error, 'NOTES_CREATE_FAILED');
@@ -153,17 +155,18 @@ export function createNotesService({ env = process.env, createSupabase = createC
     }
   }
 
-  // GET·PUT·DELETE /api/notes/:id  (아직 소유자 검사 없음: 4단계에서 고칠 허점)
+  // GET·PUT·DELETE /api/notes/:id  (본인 메모만. 남의 메모·주인 없는 메모는 404)
   async function item(request, response) {
     const entered = await enter(request, response, ['GET', 'PUT', 'DELETE'], 'item');
     if (!entered) return undefined;
-    const { supabase } = entered;
+    const { me, supabase } = entered;
     const rawId = readPathId(request);
     if (typeof rawId !== 'string' || !UUID.test(rawId)) return fail(response, 400, 'INVALID_ID');
     const id = rawId.toLowerCase();
     try {
       if (request.method === 'GET') {
-        const { data, error } = await supabase.from('notes').select(COLUMNS).eq('id', id).maybeSingle();
+        const { data, error } = await supabase.from('notes').select(COLUMNS)
+          .eq('id', id).eq('owner_id', me).maybeSingle();
         if (error) return upstreamFailed(response, error, 'NOTES_READ_FAILED');
         if (!data) return fail(response, 404, 'NOT_FOUND');
         return response.status(200).json(toNote(data));
@@ -176,15 +179,23 @@ export function createNotesService({ env = process.env, createSupabase = createC
         if (fields.error) return fail(response, 400, fields.error);
         if (input.id !== undefined && input.id !== null
             && (typeof input.id !== 'string' || input.id.toLowerCase() !== id)) return fail(response, 400, 'ID_MISMATCH');
-        // owner_id는 바꾸지 않습니다. title과 content만 갱신합니다.
+        // 기존 행: 주인이 본인인 행만 바꿉니다(where id = … and owner_id = 본인).
+        // 새 행: 주인도 본문이 아니라 확인된 본인 ID로 저장하고(본문의 owner_id는 읽지 않음), 돌려받은 행으로 다시 확인합니다.
         const { data, error } = await supabase.from('notes')
-          .update({ title: fields.title, content: fields.content }).eq('id', id).select(COLUMNS);
+          .update({ title: fields.title, content: fields.content, owner_id: me })
+          .eq('id', id).eq('owner_id', me)
+          .select(`${COLUMNS}, owner_id`);
         if (error || !Array.isArray(data)) return upstreamFailed(response, error, 'NOTES_UPDATE_FAILED');
         if (!data.length) return fail(response, 404, 'NOT_FOUND');
+        if (data.length !== 1 || String(data[0].owner_id).toLowerCase() !== me) {
+          console.error('NOTES_OWNER_MISMATCH');
+          return fail(response, 500, 'NOTES_UNAVAILABLE');
+        }
         return response.status(200).json(toNote(data[0]));
       }
 
-      const { data, error } = await supabase.from('notes').delete().eq('id', id).select('id');
+      const { data, error } = await supabase.from('notes').delete()
+        .eq('id', id).eq('owner_id', me).select('id');
       if (error || !Array.isArray(data)) return upstreamFailed(response, error, 'NOTES_DELETE_FAILED');
       if (!data.length) return fail(response, 404, 'NOT_FOUND');
       return response.status(204).end();

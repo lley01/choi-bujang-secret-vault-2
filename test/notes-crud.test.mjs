@@ -84,7 +84,8 @@ test('수정(PUT): title·body만 바꾸고 owner_id는 그대로이며 {id,titl
   assert.equal(out.status, 200);
   assert.deepEqual(out.body, { id, title: '새 제목', body: '새 본문' });
   assert.equal(store.rows[0].owner_id, A_ID);
-  assert.deepEqual(store.log.queries.at(-1).payload, { title: '새 제목', content: '새 본문' });
+  assert.deepEqual(store.log.queries.at(-1).payload, { title: '새 제목', content: '새 본문', owner_id: A_ID }, '새 행의 주인은 본문이 아니라 확인된 본인 ID');
+  assert.deepEqual(store.log.queries.at(-1).filters, [['id', id], ['owner_id', A_ID]], '기존 행도 주인이 본인일 때만 바뀐다');
   assert.deepEqual((await one(service, 'GET', id, await withA())).body, { id, title: '새 제목', body: '새 본문' });
 });
 
@@ -124,17 +125,111 @@ test('로그인한 학생(Supabase 토큰)도 추가·수정·삭제할 수 있�
   assert.equal((await one(service, 'DELETE', id, headers)).status, 204);
 });
 
-test('알려진 허점(4단계에서 고칠 것): 소유자 검사가 아직 없어 B가 A의 메모를 읽고 고치고 지울 수 있다', async () => {
+test('소유자 검사: B는 A의 메모를 읽거나 고치거나 지울 수 없고(404), A의 메모는 그대로 남는다', async () => {
   const { store, service } = setup();
   const { body: { id } } = await post(service, await withA(), { title: 'A의 메모', body: 'A만 봐야 함' });
-  assert.deepEqual((await one(service, 'GET', id, await withB())).body, { id, title: 'A의 메모', body: 'A만 봐야 함' });
-  const edited = await one(service, 'PUT', id, await withB(), { title: 'B가 고침', body: 'B가 쓴 내용' });
-  assert.equal(edited.status, 200);
-  assert.equal(store.rows[0].owner_id, A_ID, '고쳐도 소유자는 A로 남는다');
-  assert.deepEqual((await list(service, await withA())).body, [{ id, title: 'B가 고침', body: 'B가 쓴 내용' }]);
-  assert.deepEqual((await list(service, await withB())).body, [], 'B의 목록에는 나오지 않는다');
-  assert.equal((await one(service, 'DELETE', id, await withB())).status, 204);
-  assert.equal(store.rows.length, 0);
+  const before = { ...store.rows[0] };
+
+  const read = await one(service, 'GET', id, await withB());
+  const edit = await one(service, 'PUT', id, { ...(await withB()), 'x-user-id': A_ID }, { title: 'B가 고침', body: 'B가 쓴 내용', owner_id: B_ID });
+  const remove = await one(service, 'DELETE', id, await withB());
+  for (const out of [read, edit, remove]) {
+    assert.equal(out.status, 404);
+    assert.deepEqual(out.body, { error: 'NOT_FOUND' });
+    assert.ok(!JSON.stringify(out.body ?? '').includes('A만 봐야 함'));
+  }
+  assert.deepEqual(store.rows, [before], 'A의 메모는 내용도 주인도 그대로');
+  assert.deepEqual((await one(service, 'GET', id, await withA())).body, { id, title: 'A의 메모', body: 'A만 봐야 함' });
+  assert.deepEqual((await list(service, await withB())).body, []);
+});
+
+test('남의 메모와 없는 메모는 똑같은 404라서 그 id가 있는지 알 수 없다', async () => {
+  const { service } = setup();
+  const { body: { id } } = await post(service, await withA(), { title: 'A의 메모', body: '본문' });
+  const missing = crypto.randomUUID();
+  for (const method of ['GET', 'PUT', 'DELETE']) {
+    const others = await one(service, method, id, await withB(), { title: 't', body: 'b' });
+    const none = await one(service, method, missing, await withB(), { title: 't', body: 'b' });
+    assert.equal(others.status, none.status, method);
+    assert.deepEqual(others.body, none.body, method);
+    assert.deepEqual([...others.headers], [...none.headers], method);
+  }
+});
+
+test('한 건 조회·수정·삭제는 모두 id와 확인된 본인 ID(owner_id)를 한 질의의 조건으로 함께 건다', async () => {
+  const { store, service } = setup();
+  const { body: { id } } = await post(service, await withA(), { title: 't', body: 'b' });
+  const before = store.log.queries.length;
+  await one(service, 'GET', id, await withA());
+  await one(service, 'PUT', id, await withA(), { title: 't2', body: 'b2' });
+  await one(service, 'DELETE', id, await withA());
+  const queries = store.log.queries.slice(before);
+  assert.deepEqual(queries.map((q) => q.op), ['select', 'update', 'delete'], '확인 따로·변경 따로 두 번 묻지 않는다');
+  for (const q of queries) assert.deepEqual(q.filters, [['id', id], ['owner_id', A_ID]]);
+});
+
+test('URL·본문·헤더의 owner_id·userId는 믿지 않는다', async () => {
+  const { store, service } = setup();
+  const { body: { id } } = await post(service, await withA(), { title: 'A의 메모', body: '본문', owner_id: B_ID });
+  assert.equal(store.rows[0].owner_id, A_ID, '추가할 때도 본문의 owner_id는 무시');
+  // B가 본문·쿼리·헤더에 A의 ID를 넣어도 A의 메모를 다룰 수 없다
+  const spoofed = await send(service.item, { method: 'PUT', url: `/api/notes/${id}?owner_id=${A_ID}`, query: { id, owner_id: A_ID, userId: A_ID },
+    headers: { ...(await withB()), 'x-user-id': A_ID, 'x-owner-id': A_ID }, body: { title: '탈취', body: 'x', owner_id: A_ID, userId: A_ID } });
+  assert.equal(spoofed.status, 404);
+  assert.equal(store.rows[0].title, 'A의 메모');
+  // A가 본문에 B의 ID를 넣어 고쳐도 주인은 A로 남는다
+  const own = await one(service, 'PUT', id, await withA(), { title: '고침', body: '본문2', owner_id: B_ID });
+  assert.equal(own.status, 200);
+  assert.deepEqual(own.body, { id, title: '고침', body: '본문2' });
+  assert.equal(store.rows[0].owner_id, A_ID);
+});
+
+test('주인 없는(owner_id가 비어 있는) 옛 메모는 누구도 읽고 고치고 지울 수 없다', async () => {
+  const orphan = { id: crypto.randomUUID(), owner_id: null, title: '옛 메모', content: '실습용 가상', created_at: 0 };
+  const { store, service } = setup([orphan]);
+  for (const headers of [await withA(), await withB()]) {
+    for (const method of ['GET', 'PUT', 'DELETE']) {
+      assert.equal((await one(service, method, orphan.id, headers, { title: 't', body: 'b' })).status, 404, method);
+    }
+  }
+  assert.deepEqual(store.rows, [orphan]);
+});
+
+test('학생 로그인끼리도 남의 메모는 404이고 자기 메모만 다룬다', async () => {
+  const { store, service } = setup();
+  const s1 = { authorization: `Bearer ${studentToken(crypto.randomUUID())}` };
+  const s2 = { authorization: `Bearer ${studentToken(crypto.randomUUID())}` };
+  const { body: { id } } = await post(service, s1, { title: '학생1 메모', body: '내용' });
+  for (const method of ['GET', 'PUT', 'DELETE']) assert.equal((await one(service, method, id, s2, { title: 'x', body: 'y' })).status, 404);
+  assert.equal(store.rows.length, 1);
+  assert.equal((await one(service, 'DELETE', id, s1)).status, 204);
+});
+
+test('수정 결과로 돌아온 행의 주인이 본인이 아니면 내용 없이 500으로 닫는다(새 행 소유자 확인)', async () => {
+  for (const rows of [[{ id: 'x', title: 't', content: '남의 본문', owner_id: B_ID }], [{ id: 'x', title: 't', content: 'c', owner_id: A_ID }, { id: 'y', title: 't', content: 'c', owner_id: A_ID }]]) {
+    const odd = () => {
+      const query = new Proxy({}, { get: (_t, prop) => (prop === 'then' ? (resolve) => resolve({ data: rows, error: null }) : () => query) });
+      return { from: () => query };
+    };
+    const service = createNotesService({ env: FAKE_ENV, createSupabase: odd, loginConfig, loginOptions });
+    const out = await one(service, 'PUT', crypto.randomUUID(), await withA(), { title: 't', body: 'b' });
+    assert.equal(out.status, 500);
+    assert.deepEqual(out.body, { error: 'NOTES_UNAVAILABLE' });
+    assert.deepEqual(out.logs, ['NOTES_OWNER_MISMATCH']);
+    assert.ok(!JSON.stringify(out.body).includes('남의 본문'));
+  }
+});
+
+test('검사기가 대문자 UUID를 돌려줘도 소문자로 맞춰 본인 메모를 찾는다', async () => {
+  const store = createFakeStore();
+  const service = createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, loginConfig,
+    verifyLogin: async () => ({ kind: 'student', userId: A_ID.toUpperCase() }) });
+  const headers = { authorization: 'Bearer stub' };
+  const { body: { id } } = await post(service, headers, { title: 't', body: 'b' });
+  assert.equal(store.rows[0].owner_id, A_ID);
+  assert.equal((await one(service, 'GET', id, headers)).status, 200);
+  assert.equal((await one(service, 'PUT', id, headers, { title: 't2', body: 'b2' })).status, 200);
+  assert.deepEqual((await list(service, headers)).body.map((n) => n.id), [id]);
 });
 
 test('입력 검증: 잘못된 요청은 저장소에 닿기 전에 400으로 거부한다', async () => {
