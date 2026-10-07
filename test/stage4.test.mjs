@@ -11,8 +11,8 @@ const vercelEnv = {
   VERCEL_GIT_COMMIT_SHA: 'b'.repeat(40), VERCEL_URL: 'defense-app-def456.vercel.app',
 };
 
-test('설정은 4단계이고 허용 경로는 실제 메모 API 다섯 경로 그대로다', () => {
-  assert.equal(config.step, 4);
+test('설정은 4단계 이상이고 허용 경로는 실제 메모 API 다섯 경로 그대로다', () => {
+  assert.ok(config.step >= 4, '4단계 이상');
   assert.deepEqual(config.allowedRoutes, ['GET /api/notes', 'POST /api/notes', 'GET /api/notes/:id', 'PUT /api/notes/:id', 'DELETE /api/notes/:id']);
   assert.ok(config.originalApiUrl === null || config.originalApiUrl.startsWith('https://'), '원본 API 주소는 비어 있거나 https 주소여야 합니다(5단계부터 필수)');
 });
@@ -25,9 +25,9 @@ test('소유자 검사 코드가 실제로 들어 있다(패치 파일만 있고
   }
 });
 
-test('배포 식별 정보는 4단계를 받아들이고 5단계 이상은 거부한다', () => {
-  assert.equal(deploymentIdentity(vercelEnv, config).step, 4);
-  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 5 }), /배포 식별 정보를 확인할 수 없습니다/u);
+test('배포 식별 정보는 4단계를 받아들이고 6단계 이상은 거부한다', () => {
+  assert.equal(deploymentIdentity(vercelEnv, { ...config, step: 4 }).step, 4);
+  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 6 }), /배포 식별 정보를 확인할 수 없습니다/u);
 });
 
 test('4단계 자기 점검은 거부 점검 6건을 실제 응답대로 기록하고, 두 사용자 토큰이 필요한 점검은 미실행으로 남긴다', async () => {
@@ -39,13 +39,13 @@ test('4단계 자기 점검은 거부 점검 6건을 실제 응답대로 기록�
       if (String(url).endsWith('/data.json')) return new Response('not found', { status: 404 });
       return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401 });
     };
-    const results = await runAttackChecks({ ...config, publicAppUrl: 'https://student-defense.vercel.app/' });
+    const results = await runAttackChecks({ ...config, step: 4, publicAppUrl: 'https://student-defense.vercel.app/' });
     assert.equal(requests, 6, '미실행 항목은 요청을 보내지 않는다');
     assert.deepEqual(results.slice(-2).map((item) => item.attackId), ['normal_login_notes_read', 'other_owner_note_access']);
     for (const item of results.slice(-2)) assert.match(item.observed, /^미실행/u);
     assert.ok(results.length <= 20);
     for (const item of results) assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
-    await assert.rejects(runAttackChecks({ ...config, step: 5, publicAppUrl: 'https://student-defense.vercel.app/' }), /이 단계의 공격 점검/u);
+    await assert.rejects(runAttackChecks({ ...config, step: 6, publicAppUrl: 'https://student-defense.vercel.app/' }), /이 단계의 공격 점검/u);
   } finally {
     globalThis.fetch = originalFetch;
   }

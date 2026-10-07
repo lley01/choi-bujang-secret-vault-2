@@ -2,6 +2,41 @@
 
 이 저장소는 1단계에서 학생 본인이 GitHub 저장소와 Vercel 배포를 만드는 출발점입니다. 포함된 메모 네 건은 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 5단계 저장점: 현재 작동하는 기능과 다시 실행하는 방법
+
+**지금 되는 것**
+
+- 이메일·비밀번호 로그인·로그아웃 화면(Supabase Auth 공식 SDK). 브라우저는 Supabase를 **로그인에만** 쓰고, 메모 자료는 서버 함수(`/api/notes`, `/api/notes/:id`)로만 읽고 씁니다.
+- 서버 함수는 모든 요청의 로그인 토큰을 시작 틀의 `src/verify-login.mjs`로 검사하고(없거나 틀리면 401 `{error, message}`), 확인된 사용자 ID와 `owner_id`가 같은 메모만 다룹니다(남의 메모는 404). DB는 서버 전용 키로만 접근합니다.
+- 공개 `data.json`은 없고 자료는 Supabase `public.notes`에 있습니다.
+
+**`aleph.config.json` 대조**
+
+| 항목 | 값 | 구현과 맞는지 |
+|---|---|---|
+| `step` | 5 | 자료 요청을 서버 함수 한곳으로 모았습니다. 빌드·배포 식별·자기 점검이 5단계를 받도록 함께 넓혔습니다. |
+| `repoUrl` | `https://github.com/lley01/choi-bujang-secret-vault-2` | Git `origin`과 같습니다. |
+| `publicAppUrl` | `…-git-main-lley01.vercel.app/` | 알려 준 배포 주소입니다. 실제 배포에서 열어 확인한 값이 아닙니다. |
+| `identityProvider` | `issuer`·`audience`·`jwksUrl` (공개 값) | 화면이 쓰는 Supabase 프로젝트와 같습니다(시험으로 확인). |
+| `allowedRoutes` | `GET /api/notes`, `POST /api/notes`, `GET /api/notes/:id`, `PUT /api/notes/:id`, `DELETE /api/notes/:id` | 서버 함수가 처리하는 메서드·경로와 같습니다(시험으로 확인). |
+| `originalApiUrl` | `https://lley01-choi-bujang-secret-vault-git-main-lley01.vercel.app/api/notes` | 쿼리 없는 원본 자료 HTTPS 경로, 배포 주소와 같은 호스트입니다(시험으로 확인). |
+| `judgeIssuer` | 운영 측이 채운 값 | 바꾸지 않았습니다. |
+
+**DB 직접 권한**
+
+- 메모 테이블의 PUBLIC·anon·authenticated 직접 권한을 거두는 SQL은 저장소 밖에서 제안했습니다. 실행했는지는 이 저장소로 확인할 수 없으니 그 SQL의 ①·③ 확인 쿼리로 보세요.
+
+**다시 실행하고 확인하는 방법**
+
+- 키·네트워크 없이 하는 로컬 시험: `npm run test:stage5`, `test:stage4`, `test:stage3`, `test:notes-api`, `test:login-api`, `test:login`, `test:step2`
+- 제출 묶음: 배포가 끝난 뒤 학생 컴퓨터에서 `npm run bundle`. 먼저 `bundle-notes.json`(커밋하지 않음)에 이번 단계에서 한 일을 적고, 변경을 커밋해 작업 폴더를 깨끗하게 둡니다. 이 점검은 `publicAppUrl`로 실제 요청을 보냅니다.
+- 자기 점검(`src/attack-check.mjs`)은 심판의 판정이 아닙니다. 로그인 없는 요청 6건을 실제로 보내고, **우리 앱의 401 JSON(`LOGIN_REQUIRED`)일 때만 "거부됨"**으로 적습니다. 네트워크 프록시나 배포 보호 화면이 막은 401·403은 "판정 불가"로 적습니다. 토큰이 필요한 정상 로그인, B가 A의 메모에 접근, 학습 DB REST 직접 접근 점검은 `미실행`으로 남깁니다.
+
+**아직 하지 않은 것**
+
+- 추가할 때 이미 있는 `id`면 409라서, 그 id가 쓰였다는 사실은 알 수 있습니다(내용은 알 수 없음). 호출 한도는 없습니다.
+- `api/ai.js`·`api/threat-intel.js`는 501 뼈대 그대로이고, `RULE_IDS`는 시작 틀의 `starter.deny`만 있습니다.
+
 ## 추가: 5단계 제작 「자료 요청을 서버 한곳으로 모읍니다」
 
 **작동하는 기능**
@@ -16,9 +51,9 @@
 
 **아직 하지 않은 것**
 
-- `step`은 4 그대로입니다(5단계 저장점에서 대조합니다). `scripts/bundle.mjs`는 5단계부터 `originalApiUrl`에 https 주소를 요구합니다.
+- (제작 시점의 기록) 이때는 `step`이 4였습니다. 5단계 저장점에서 5로 올렸습니다. `scripts/bundle.mjs`는 5단계부터 `originalApiUrl`에 https 주소를 요구합니다.
 - `publicAppUrl`과 `originalApiUrl`의 호스트는 실제 배포에서 열어 확인한 값이 아닙니다.
-- `src/attack-check.mjs`는 401·403이면 누가 답했든 "거부됨"으로 적습니다(4단계 저장점의 묶음에서 샌드박스 프록시의 403이 그렇게 기록됨). 제출 전에 고칠 대상입니다.
+- (해소됨) `src/attack-check.mjs`가 401·403이면 누가 답했든 "거부됨"으로 적던 문제는 5단계 저장점에서 고쳤습니다. 지금은 우리 앱의 401 JSON일 때만 거부로 적습니다.
 
 **다시 실행하고 확인하는 방법**
 
@@ -26,7 +61,9 @@
 - 배포 뒤 정상: a@example.com으로 로그인해 메모를 추가·수정·삭제할 수 있습니다.
 - 배포 뒤 거부되어야 할 결과(권한 SQL 실행 뒤): 로그인한 화면의 F12 → Console에서 Supabase REST를 직접 부르면 거부됩니다(예: `window.supabase.createClient(...)`로 만든 클라이언트의 `from('notes').select()` 결과가 permission denied 오류).
 
-## 4단계 저장점: 현재 작동하는 기능과 다시 실행하는 방법
+## 4단계 저장점 시점의 기록
+
+(아래 표와 목록은 4단계 저장점 때의 값입니다. 지금 값은 맨 위 「5단계 저장점」을 보세요.)
 
 **지금 되는 것**
 
@@ -77,9 +114,9 @@
 
 **아직 하지 않은 것**
 
-- **DB 권한(RLS 정책)은 아직 그대로입니다.** 지금은 서버 전용 키로 접근하는 API 코드가 소유자를 확인합니다. DB 쪽 정책은 다음 요청에서 다룹니다.
+- (제작 시점의 기록) 이때는 DB 권한(RLS 정책)을 바꾸지 않았습니다. 그 뒤 DB 정책 SQL과 5단계의 직접 권한 회수 SQL을 저장소 밖에서 제안했습니다.
 - 추가할 때 이미 있는 `id`를 보내면 409(`ID_EXISTS`)라서, 그 id가 이미 쓰였다는 사실은 알 수 있습니다(내용은 알 수 없음).
-- `src/attack-check.mjs`에는 "B가 A의 메모를 읽을 수 있는가" 점검이 없습니다. 사용자 두 명의 토큰이 있어야 해서 이 점검에서는 보낼 수 없습니다.
+- (제작 시점의 기록) 이때는 `src/attack-check.mjs`에 "B가 A의 메모를 읽을 수 있는가" 점검이 없었습니다. 4단계 저장점에서 `미실행` 항목(`other_owner_note_access`)으로 넣었습니다(두 사용자 토큰이 필요).
 - (제작 시점의 기록) 이때는 `step`이 3이었습니다. 4단계 저장점에서 4로 올렸습니다.
 
 **다시 실행하고 확인하는 방법**

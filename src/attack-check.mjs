@@ -5,13 +5,12 @@ async function readJson(url, { headers, method, body } = {}) {
     redirect: 'error', signal: AbortSignal.timeout(10000),
     ...(method ? { method } : {}), ...(headers ? { headers } : {}), ...(body === undefined ? {} : { body }),
   });
+  // 성공·실패와 관계없이 JSON 본문을 읽어, 거부한 쪽이 우리 앱인지 가릴 수 있게 합니다.
   let data = null;
-  if (response.ok) {
-    try {
-      data = await response.json();
-    } catch {
-      // A non-JSON response is a failed check, not a successful deployment.
-    }
+  try {
+    data = await response.json();
+  } catch {
+    // A non-JSON response is a failed check, not a successful deployment.
   }
   return { status: response.status, data };
 }
@@ -21,7 +20,7 @@ const noteList = (data) => (Array.isArray(data) ? data : data?.notes);
 const hasNotes = (data) => Array.isArray(noteList(data)) && noteList(data).length > 0;
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -53,20 +52,31 @@ export async function runAttackChecks(config) {
     update: await readJson(new URL(`/api/notes/${crypto.randomUUID()}`, app), { method: 'PUT', headers: json, body: JSON.stringify({ title: '점검', body: '점검' }) }),
     remove: await readJson(new URL(`/api/notes/${crypto.randomUUID()}`, app), { method: 'DELETE' }),
   };
+  // 거부는 우리 앱이 보낸 401 JSON({ error: 'LOGIN_REQUIRED' })일 때만 인정합니다.
+  // 네트워크 프록시나 Vercel 로그인 보호 화면처럼 다른 곳이 막은 401·403은 앱의 거부가 아니므로 '판정 불가'로 적습니다.
+  const denied = (result) => !hasNotes(result.data) && result.status === 401 && result.data?.error === 'LOGIN_REQUIRED';
+  const blockedElsewhere = (result) => !denied(result) && !hasNotes(result.data) && (result.status === 401 || result.status === 403);
+  const elsewhere = (result) => `판정 불가: 앱이 아닌 곳(네트워크 프록시·배포 보호 화면 등)의 응답으로 보임 (HTTP ${result.status})`;
   const writeCheck = (attackId, label, result) => ({ attackId, expected: `토큰 없이 ${label}을 보내면 자료 없이 거부됨(401)`,
-    observed: denied(result) ? `토큰 없는 ${label}이 거부됨 (HTTP ${result.status})` : `토큰 없는 ${label}이 거부되지 않음 (HTTP ${result.status})` });
-  const denied = (result) => !hasNotes(result.data) && (result.status === 401 || result.status === 403);
+    observed: denied(result) ? `토큰 없는 ${label}이 거부됨 (HTTP ${result.status})`
+      : blockedElsewhere(result) ? `토큰 없는 ${label}: ${elsewhere(result)}`
+        : `토큰 없는 ${label}이 거부되지 않음 (HTTP ${result.status})` });
   const results = [
     { attackId: 'anonymous_note_read', expected: '비로그인으로 옛 공개 /data.json을 요청해도 가상 메모가 보이지 않음',
-      observed: hasNotes(legacy.data) ? '비로그인 요청에서 /data.json에 가상 메모가 아직 보임' : `비로그인 요청에서 /data.json에 가상 메모가 보이지 않음 (HTTP ${legacy.status})` },
+      // 우리 앱은 /data.json에 401·403을 주지 않습니다(파일이 없으면 404). 401·403은 다른 곳이 막은 것이라 판정 불가로 적습니다.
+      observed: hasNotes(legacy.data) ? '비로그인 요청에서 /data.json에 가상 메모가 아직 보임'
+        : (legacy.status === 401 || legacy.status === 403) ? `비로그인 요청 ${elsewhere(legacy)}`
+          : `비로그인 요청에서 /data.json에 가상 메모가 보이지 않음 (HTTP ${legacy.status})` },
     { attackId: 'anonymous_notes_api_read', expected: '토큰 없이 /api/notes를 요청하면 자료 없이 거부됨(401)',
       observed: denied(api) ? `토큰 없는 요청에서 /api/notes가 자료 없이 거부됨 (HTTP ${api.status})`
         : hasNotes(api.data) ? '토큰 없는 요청에서 /api/notes가 가상 메모를 돌려줌 (거부되지 않음)'
-          : `토큰 없는 요청에서 자료는 없지만 거부 코드(401·403)가 아님 (HTTP ${api.status})` },
+          : blockedElsewhere(api) ? `토큰 없는 요청 ${elsewhere(api)}`
+            : `토큰 없는 요청에서 자료는 없지만 거부 코드(401·403)가 아님 (HTTP ${api.status})` },
     { attackId: 'forged_token_notes_api_read', expected: '엉터리 토큰으로 /api/notes를 요청하면 자료 없이 거부됨(401)',
       observed: denied(forged) ? `엉터리 토큰 요청에서 /api/notes가 자료 없이 거부됨 (HTTP ${forged.status})`
         : hasNotes(forged.data) ? '엉터리 토큰 요청에서 /api/notes가 가상 메모를 돌려줌 (거부되지 않음)'
-          : `엉터리 토큰 요청에서 자료는 없지만 거부 코드(401·403)가 아님 (HTTP ${forged.status})` },
+          : blockedElsewhere(forged) ? `엉터리 토큰 요청 ${elsewhere(forged)}`
+            : `엉터리 토큰 요청에서 자료는 없지만 거부 코드(401·403)가 아님 (HTTP ${forged.status})` },
     writeCheck('anonymous_note_create', 'POST /api/notes', writes.create),
     writeCheck('anonymous_note_update', 'PUT /api/notes/:id', writes.update),
     writeCheck('anonymous_note_delete', 'DELETE /api/notes/:id', writes.remove),
@@ -80,6 +90,11 @@ export async function runAttackChecks(config) {
     // 소유자 검사는 서로 다른 두 사용자의 로그인 토큰이 있어야 확인할 수 있습니다. 보내지 않았으므로 미실행으로 남깁니다.
     results.push({ attackId: 'other_owner_note_access', expected: '로그인한 B가 A의 메모 id로 GET·PUT·DELETE를 보내면 404로 거부되고 A의 메모는 그대로',
       observed: '미실행: 서로 다른 두 사용자의 로그인 토큰이 필요해 이 점검에서는 요청을 보내지 않음' });
+  }
+  if (config.step >= 5) {
+    // 학습 DB의 Supabase REST를 직접 부르는 길은 로그인 토큰과 학습 DB 주소가 있어야 시험할 수 있습니다. 보내지 않았으므로 미실행으로 남깁니다.
+    results.push({ attackId: 'direct_db_rest_access', expected: '로그인 토큰이나 publishable key로 학습 DB의 /rest/v1/notes를 직접 부르면 권한 없음으로 거부되고 메모는 서버 함수로만 다룸',
+      observed: '미실행: 로그인 토큰과 학습 DB 주소가 필요해 이 점검에서는 요청을 보내지 않음(DB 권한은 SQL 확인 쿼리로 확인)' });
   }
   return results;
 }
