@@ -6,8 +6,8 @@ const root = resolve(import.meta.dirname, '..');
 const source = resolve(root, 'data.json');
 const output = resolve(root, 'public', 'data.json');
 const config = JSON.parse(await readFile(resolve(root, 'aleph.config.json'), 'utf8'));
-if (config.step !== 1 && config.step !== 2) {
-  throw new Error('이 빌드는 1~2단계만 지원합니다. 이후 단계의 빌드는 해당 단계에서 추가하세요.');
+if (![1, 2, 3].includes(config.step)) {
+  throw new Error('이 빌드는 1~3단계만 지원합니다. 이후 단계의 빌드는 해당 단계에서 추가하세요.');
 }
 await mkdir(resolve(root, 'public'), { recursive: true });
 if (config.step === 1) {
@@ -18,9 +18,9 @@ if (config.step === 1) {
   await copyFile(source, output);
   console.log('실습용 공개 자료를 public/data.json에 복사했습니다.');
 } else {
-  // 2단계: 자료는 Supabase에 있고 /api/notes 서버 함수가 읽습니다. 공개 복사본은 만들지 않고, 남아 있으면 지웁니다.
+  // 2~3단계: 자료는 Supabase에 있고 /api/notes 서버 함수가 읽습니다. 공개 복사본은 만들지 않고, 남아 있으면 지웁니다.
   await rm(output, { force: true });
-  console.log('2단계: 공개 data.json을 만들지 않았습니다. 자료는 /api/notes 서버 함수가 읽습니다.');
+  console.log(`${config.step}단계: 공개 data.json을 만들지 않았습니다. 자료는 /api/notes 서버 함수가 읽습니다.`);
 }
 // 로그인 화면이 쓰는 공식 SDK(supabase-js)의 브라우저용 파일을 우리 서버에서 내려줍니다. 외부 CDN은 쓰지 않습니다.
 const sdkSource = resolve(root, 'node_modules', '@supabase', 'supabase-js', 'dist', 'umd', 'supabase.js');

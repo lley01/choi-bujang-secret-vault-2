@@ -2,6 +2,36 @@
 
 이 저장소는 1단계에서 학생 본인이 GitHub 저장소와 Vercel 배포를 만드는 출발점입니다. 포함된 메모 네 건은 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 3단계 저장점: 현재 작동하는 기능과 다시 실행하는 방법
+
+**지금 되는 것**
+
+- 이메일·비밀번호 **로그인·로그아웃 화면**(Supabase Auth 공식 SDK).
+- 메모 API 다섯 경로가 모두 로그인 토큰을 시작 틀의 `src/verify-login.mjs`로 검사합니다. 토큰이 없거나 검사에 실패하면 자료 없이 **401**과 `{ error, message }`를 돌려주고, 서버 콘솔과 브라우저 콘솔에 그 사실이 남습니다.
+- 로그인한 사용자가 메모를 **추가·수정·삭제**하고, 목록은 자기 메모만 보입니다. 추가할 때 서버가 확인한 사용자 ID를 `owner_id`로 저장합니다.
+- 공개 `data.json`은 없고 자료는 Supabase `public.notes`에 있습니다.
+
+**`aleph.config.json` 대조**
+
+| 항목 | 값 | 구현과 맞는지 |
+|---|---|---|
+| `step` | 3 | 로그인·토큰 검사·허용 경로까지 구현했습니다. 빌드·배포 식별·자기 점검이 3단계를 받도록 함께 넓혔습니다. |
+| `publicAppUrl` | `…-git-main-lley01.vercel.app/` | 알려 준 배포 주소입니다. 실제 배포에서 열어 확인한 값이 아닙니다. |
+| `identityProvider` | `issuer`·`audience`·`jwksUrl` (모두 공개 값) | 화면이 쓰는 Supabase 프로젝트와 같은 프로젝트입니다(시험으로 확인). |
+| `allowedRoutes` | 다섯 경로 | `api/notes.js`·`api/notes/[id].js`가 처리하는 경로와 같습니다(시험으로 확인). |
+| `judgeIssuer` | 운영 측이 채운 값 | 바꾸지 않았습니다. |
+
+**다시 실행하고 확인하는 방법**
+
+- 키·네트워크 없이 하는 로컬 시험: `npm run test:stage3`, `test:notes-api`, `test:login-api`, `test:login`, `test:step2`
+- 제출 묶음: 배포가 끝난 뒤 `npm run bundle`. 먼저 `bundle-notes.json`에 이번 단계에서 한 일을 적고, 변경을 커밋해 작업 폴더를 깨끗하게 둡니다. 이 점검은 `publicAppUrl`로 실제 요청을 보냅니다. `bundle-notes.json`과 `artifacts/submission.json`은 커밋하지 않습니다.
+- `src/attack-check.mjs`는 심판의 판정이 아니라 학생의 자기 점검입니다. 로그인 없는 요청의 거부만 보내고, 정상 로그인 점검은 `미실행`으로 남깁니다.
+
+**아직 하지 않은 것**
+
+- 4단계에서 고칠 허점: 한 건 조회·수정·삭제(`/:id`)에 소유자 검사가 없어 로그인한 B가 A의 메모 id를 알면 다룰 수 있습니다.
+- 호출 한도가 없고, `api/ai.js`·`api/threat-intel.js`는 501 뼈대 그대로입니다. `RULE_IDS`는 시작 틀의 기본 거부 규칙(`starter.deny`)만 있습니다.
+
 ## 추가: 로그인 없는 요청의 거부 응답과 콘솔 출력
 
 **작동하는 기능**
@@ -42,7 +72,7 @@
 - **소유자 검사가 없습니다(4단계에서 고칠 것).** `GET·PUT·DELETE /api/notes/:id`는 메모의 주인을 확인하지 않아서, 로그인한 B가 A의 메모 id를 알면 읽고 고치고 지울 수 있습니다. 목록은 로그인한 사용자의 메모만 돌려주므로 화면에서는 보이지 않지만, API를 직접 부르면 가능합니다. `test/notes-crud.test.mjs`에 이 허점이 이름을 붙여 기록되어 있고, 4단계에서 고칠 때 그 시험도 함께 바뀝니다.
 - 처음 넣어 둔 가상 메모 네 건은 `owner_id`가 비어 있어서 누구의 목록에도 나오지 않습니다. 필요하면 화면에서 새로 추가하세요.
 - 호출 한도가 없습니다. 심판 공개키(JWKS)나 Supabase를 확인하지 못하면 정상 로그인도 거부됩니다(자료 없이 닫힘).
-- `aleph.config.json`의 `step`은 아직 2입니다. `step`을 3으로 올리려면 `scripts/build-public.mjs`와 `scripts/deployment-identity.mjs`가 허용하는 단계(지금은 1~2)를 함께 넓혀야 합니다. `api/ai.js`와 `api/threat-intel.js`는 501 뼈대 그대로입니다.
+- (제작 3 시점의 기록) 이때는 `step`이 2였습니다. 3단계 저장점에서 `step`을 3으로 올리고 `scripts/build-public.mjs`·`scripts/deployment-identity.mjs`·`src/attack-check.mjs`가 3단계를 받도록 넓혔습니다. `api/ai.js`와 `api/threat-intel.js`는 501 뼈대 그대로입니다.
 - 실제 Vercel 배포와 실제 Supabase 계정으로 확인한 결과가 아닙니다. 아래 확인을 마치기 전까지는 미확인입니다.
 
 **다시 실행하고 확인하는 방법**

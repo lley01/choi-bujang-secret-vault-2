@@ -21,7 +21,7 @@ const noteList = (data) => (Array.isArray(data) ? data : data?.notes);
 const hasNotes = (data) => Array.isArray(noteList(data)) && noteList(data).length > 0;
 
 export async function runAttackChecks(config) {
-  if (config.step !== 1 && config.step !== 2) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -56,7 +56,7 @@ export async function runAttackChecks(config) {
   const writeCheck = (attackId, label, result) => ({ attackId, expected: `토큰 없이 ${label}을 보내면 자료 없이 거부됨(401)`,
     observed: denied(result) ? `토큰 없는 ${label}이 거부됨 (HTTP ${result.status})` : `토큰 없는 ${label}이 거부되지 않음 (HTTP ${result.status})` });
   const denied = (result) => !hasNotes(result.data) && (result.status === 401 || result.status === 403);
-  return [
+  const results = [
     { attackId: 'anonymous_note_read', expected: '비로그인으로 옛 공개 /data.json을 요청해도 가상 메모가 보이지 않음',
       observed: hasNotes(legacy.data) ? '비로그인 요청에서 /data.json에 가상 메모가 아직 보임' : `비로그인 요청에서 /data.json에 가상 메모가 보이지 않음 (HTTP ${legacy.status})` },
     { attackId: 'anonymous_notes_api_read', expected: '토큰 없이 /api/notes를 요청하면 자료 없이 거부됨(401)',
@@ -71,4 +71,10 @@ export async function runAttackChecks(config) {
     writeCheck('anonymous_note_update', 'PUT /api/notes/:id', writes.update),
     writeCheck('anonymous_note_delete', 'DELETE /api/notes/:id', writes.remove),
   ];
+  if (config.step >= 3) {
+    // 정상 로그인 요청은 학생 비밀번호나 심판이 발급한 토큰이 있어야 보낼 수 있습니다. 보내지 않았으므로 성공으로 쓰지 않고 미실행으로 남깁니다.
+    results.push({ attackId: 'normal_login_notes_read', expected: '정상 로그인(심판 A 또는 학생)으로 /api/notes를 요청하면 자기 메모 목록을 받음',
+      observed: '미실행: 로그인 토큰이 필요해 이 점검에서는 요청을 보내지 않음' });
+  }
+  return results;
 }
