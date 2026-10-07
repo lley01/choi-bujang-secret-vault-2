@@ -1,8 +1,9 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
-async function readJson(url, headers) {
+async function readJson(url, { headers, method, body } = {}) {
   const response = await fetch(url, {
-    redirect: 'error', signal: AbortSignal.timeout(10000), ...(headers ? { headers } : {}),
+    redirect: 'error', signal: AbortSignal.timeout(10000),
+    ...(method ? { method } : {}), ...(headers ? { headers } : {}), ...(body === undefined ? {} : { body }),
   });
   let data = null;
   if (response.ok) {
@@ -15,7 +16,9 @@ async function readJson(url, headers) {
   return { status: response.status, data };
 }
 
-const hasNotes = (data) => Array.isArray(data?.notes) && data.notes.length > 0;
+// 1단계는 { notes: [...] }, 이후 목록은 [...] 배열입니다. 둘 중 하나라도 메모가 들어 있으면 자료가 보인 것으로 봅니다.
+const noteList = (data) => (Array.isArray(data) ? data : data?.notes);
+const hasNotes = (data) => Array.isArray(noteList(data)) && noteList(data).length > 0;
 
 export async function runAttackChecks(config) {
   if (config.step !== 1 && config.step !== 2) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
@@ -42,7 +45,16 @@ export async function runAttackChecks(config) {
   // 정상 로그인 요청은 학생 비밀번호나 심판 토큰이 필요해 여기서 보내지 않습니다(미실행).
   const legacy = await readJson(new URL('/data.json', app));
   const api = await readJson(new URL('/api/notes', app));
-  const forged = await readJson(new URL('/api/notes', app), { Authorization: 'Bearer aaaaaaaa.bbbbbbbb.cccccccc' });
+  const forged = await readJson(new URL('/api/notes', app), { headers: { Authorization: 'Bearer aaaaaaaa.bbbbbbbb.cccccccc' } });
+  // 쓰기 경로도 로그인 없이는 거부되어야 합니다. 무작위 id를 쓰므로 거부되지 않아도 기존 메모는 건드리지 않습니다.
+  const json = { 'Content-Type': 'application/json' };
+  const writes = {
+    create: await readJson(new URL('/api/notes', app), { method: 'POST', headers: json, body: JSON.stringify({ title: '점검', body: '점검' }) }),
+    update: await readJson(new URL(`/api/notes/${crypto.randomUUID()}`, app), { method: 'PUT', headers: json, body: JSON.stringify({ title: '점검', body: '점검' }) }),
+    remove: await readJson(new URL(`/api/notes/${crypto.randomUUID()}`, app), { method: 'DELETE' }),
+  };
+  const writeCheck = (attackId, label, result) => ({ attackId, expected: `토큰 없이 ${label}을 보내면 자료 없이 거부됨(401)`,
+    observed: denied(result) ? `토큰 없는 ${label}이 거부됨 (HTTP ${result.status})` : `토큰 없는 ${label}이 거부되지 않음 (HTTP ${result.status})` });
   const denied = (result) => !hasNotes(result.data) && (result.status === 401 || result.status === 403);
   return [
     { attackId: 'anonymous_note_read', expected: '비로그인으로 옛 공개 /data.json을 요청해도 가상 메모가 보이지 않음',
@@ -55,5 +67,8 @@ export async function runAttackChecks(config) {
       observed: denied(forged) ? `엉터리 토큰 요청에서 /api/notes가 자료 없이 거부됨 (HTTP ${forged.status})`
         : hasNotes(forged.data) ? '엉터리 토큰 요청에서 /api/notes가 가상 메모를 돌려줌 (거부되지 않음)'
           : `엉터리 토큰 요청에서 자료는 없지만 거부 코드(401·403)가 아님 (HTTP ${forged.status})` },
+    writeCheck('anonymous_note_create', 'POST /api/notes', writes.create),
+    writeCheck('anonymous_note_update', 'PUT /api/notes/:id', writes.update),
+    writeCheck('anonymous_note_delete', 'DELETE /api/notes/:id', writes.remove),
   ];
 }

@@ -9,6 +9,7 @@
     "test:step2": "node --test test/step2.test.mjs",
     "test:login": "node --test test/login-screen.test.mjs",
     "test:login-api": "node --test test/login-api.test.mjs",
+    "test:notes-api": "node --test test/notes-crud.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "detect:test": "node scripts/detect-test.mjs",

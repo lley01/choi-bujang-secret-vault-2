@@ -5,13 +5,22 @@ import { test } from 'node:test';
 
 const baseline = JSON.parse(await readFile(new URL('../package/baseline-functions.json', import.meta.url)));
 
+// api/ 아래의 함수 파일을 하위 폴더(예: api/notes/[id].js)까지 모두 셉니다.
+async function listApiFiles(dir = 'api') {
+  const found = [];
+  for (const entry of await readdir(new URL(`../${dir}/`, import.meta.url), { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) found.push(...await listApiFiles(path));
+    else if (/\.(?:m?js|ts)$/u.test(entry.name)) found.push(path);
+  }
+  return found.sort();
+}
+
 test('패키징 함수 기준표는 시작 틀의 실제 API와 일치한다', async () => {
-  const actual = (await readdir(new URL('../api/', import.meta.url)))
-    .filter(name => /\.(?:m?js|ts)$/u.test(name))
-    .map(name => join('api', name).replaceAll('\\', '/')).sort();
+  const actual = await listApiFiles();
   assert.equal(baseline.version, 1);
   assert.equal(baseline.starter, 'ChoiTimo/aleph-defense-starter');
-  assert.deepEqual(baseline.functions, ['api/notes.js']);
+  assert.deepEqual(baseline.functions, ['api/notes.js', 'api/notes/[id].js']);
   assert.deepEqual(baseline.allowedNew, ['api/ai.js', 'api/threat-intel.js']);
   assert.deepEqual(actual, [...baseline.functions, ...baseline.allowedNew].sort());
 });
