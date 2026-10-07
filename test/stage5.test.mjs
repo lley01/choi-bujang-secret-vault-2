@@ -8,18 +8,19 @@ import { runAttackChecks } from '../src/attack-check.mjs';
 const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
 const page = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 
-test('originalApiUrl은 쿼리 없는 원본 자료 HTTPS 경로이고, 배포 주소와 같은 호스트의 /api/notes다', () => {
+test('originalApiUrl은 쿼리 없는 원본 자료 HTTPS 경로, 즉 학습 DB(Supabase)의 메모 자료 API다', () => {
   assert.equal(typeof config.originalApiUrl, 'string');
   assert.ok(config.originalApiUrl.startsWith('https://'), 'scripts/bundle.mjs의 5단계 규칙');
   const original = new URL(config.originalApiUrl);
-  const app = new URL(config.publicAppUrl);
   assert.equal(original.search, '', '쿼리가 없어야 합니다');
   assert.equal(original.hash, '');
-  assert.equal(original.username + original.password, '');
-  assert.equal(original.host, app.host, '배포 주소와 같은 호스트');
-  assert.equal(original.pathname, '/api/notes');
-  assert.ok(!config.originalApiUrl.endsWith('/'), '끝에 / 가 붙지 않은 그대로의 경로');
-  assert.ok(config.allowedRoutes.includes('GET /api/notes') && config.allowedRoutes.includes('POST /api/notes'));
+  assert.equal(original.username + original.password, '', '주소에 계정·키를 넣지 않습니다');
+  // 원본은 서버 함수가 자료를 가져오는 자리(Supabase)입니다. 서버 함수 주소(/api/notes)를 적으면
+  // 로그인한 시험 계정이 정상으로 조회할 수 있어 '원본 직접 조회 차단' 확인이 거꾸로 성공해 버립니다.
+  assert.equal(original.host, new URL(config.identityProvider.issuer).host, '로그인과 같은 Supabase 프로젝트');
+  assert.notEqual(original.host, new URL(config.publicAppUrl).host, '우리 서버 함수 주소가 아니어야 합니다');
+  assert.equal(original.pathname, '/rest/v1/notes');
+  assert.doesNotMatch(config.originalApiUrl, /sb_(publishable|secret)_|apikey|token|eyJ/iu, '비밀값·키를 넣지 않습니다');
 });
 
 test('브라우저 코드는 메모 자료를 Supabase에서 직접 읽거나 고치지 않고 서버 함수만 부른다(로그인 호출은 예외)', () => {

@@ -19,7 +19,7 @@
 | `publicAppUrl` | `…-git-main-lley01.vercel.app/` | 알려 준 배포 주소입니다. 실제 배포에서 열어 확인한 값이 아닙니다. |
 | `identityProvider` | `issuer`·`audience`·`jwksUrl` (공개 값) | 화면이 쓰는 Supabase 프로젝트와 같습니다(시험으로 확인). |
 | `allowedRoutes` | `GET /api/notes`, `POST /api/notes`, `GET /api/notes/:id`, `PUT /api/notes/:id`, `DELETE /api/notes/:id` | 서버 함수가 처리하는 메서드·경로와 같습니다(시험으로 확인). |
-| `originalApiUrl` | `https://lley01-choi-bujang-secret-vault-git-main-lley01.vercel.app/api/notes` | 쿼리 없는 원본 자료 HTTPS 경로, 배포 주소와 같은 호스트입니다(시험으로 확인). |
+| `originalApiUrl` | `https://iaifwhhyhzyacfdwziuo.supabase.co/rest/v1/notes` | 쿼리 없는 원본 자료 HTTPS 경로, 즉 학습 DB(Supabase)의 메모 자료 API입니다. 공개 키·시험 계정 토큰으로 직접 부르면 `403 42501`로 막힙니다(5단계 고침, 브라우저에서 확인). |
 | `judgeIssuer` | 운영 측이 채운 값 | 바꾸지 않았습니다. |
 
 **DB 직접 권한**
@@ -43,7 +43,7 @@
 
 - 브라우저 코드(`public/index.html`)는 메모 자료를 Supabase에서 직접 읽거나 고치지 않습니다. Supabase 클라이언트는 로그인(`auth`)에만 쓰고, 메모는 서버 함수(`/api/notes`, `/api/notes/:id`)만 부릅니다(`test/stage5.test.mjs`로 고정).
 - 서버 함수의 로그인 검사·소유자 검사와 서버 전용 설정(`SUPABASE_URL`, `SUPABASE_SECRET_KEY`)은 그대로입니다.
-- `aleph.config.json`의 `originalApiUrl`에 쿼리 없는 원본 자료 HTTPS 경로를 적었습니다: `https://lley01-choi-bujang-secret-vault-git-main-lley01.vercel.app/api/notes`(배포 주소와 같은 호스트의 `/api/notes`).
+- `aleph.config.json`의 `originalApiUrl`은 쿼리 없는 원본 자료 HTTPS 경로 `https://iaifwhhyhzyacfdwziuo.supabase.co/rest/v1/notes`입니다. (고침) 처음에는 우리 서버 함수 주소(`…vercel.app/api/notes`)를 적었는데, 서버 함수는 로그인한 시험 계정에 자료를 주는 것이 정상이라 '원본 직접 조회'가 성공한 것처럼 보였습니다. 원본은 서버 함수가 자료를 가져오는 Supabase 자료 API입니다.
 
 **DB 직접 권한**
 
@@ -52,7 +52,7 @@
 **아직 하지 않은 것**
 
 - (제작 시점의 기록) 이때는 `step`이 4였습니다. 5단계 저장점에서 5로 올렸습니다. `scripts/bundle.mjs`는 5단계부터 `originalApiUrl`에 https 주소를 요구합니다.
-- `publicAppUrl`과 `originalApiUrl`의 호스트는 실제 배포에서 열어 확인한 값이 아닙니다.
+- `publicAppUrl`은 실제 배포에서 열어 확인한 값이 아닙니다. `originalApiUrl`(Supabase 자료 API)은 공개 키·시험 계정 토큰 직접 조회가 `403 42501`로 막히는 것을 브라우저에서 확인했습니다.
 - (해소됨) `src/attack-check.mjs`가 401·403이면 누가 답했든 "거부됨"으로 적던 문제는 5단계 저장점에서 고쳤습니다. 지금은 우리 앱의 401 JSON일 때만 거부로 적습니다.
 
 **다시 실행하고 확인하는 방법**
@@ -81,7 +81,7 @@
 | `identityProvider` | `issuer`·`audience`·`jwksUrl` (공개 값) | 화면이 쓰는 Supabase 프로젝트와 같습니다(시험으로 확인). |
 | `allowedRoutes` | `GET /api/notes`, `POST /api/notes`, `GET /api/notes/:id`, `PUT /api/notes/:id`, `DELETE /api/notes/:id` | `api/notes.js`·`api/notes/[id].js`가 처리하는 메서드·경로와 같습니다(시험으로 확인). |
 | `judgeIssuer` | 운영 측이 채운 값 | 바꾸지 않았습니다. |
-| `originalApiUrl` | `null`(4단계 저장점 당시) | 5단계 제작에서 `…/api/notes`로 채웠습니다(맨 위 참고). |
+| `originalApiUrl` | `null`(4단계 저장점 당시) | 5단계에서 채웠습니다. 지금 값은 맨 위 「5단계 저장점」을 보세요. |
 
 **DB 권한**
 
