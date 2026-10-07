@@ -25,6 +25,9 @@
     .auth button, .panel button { margin-top: 14px; padding: 10px 18px; font: inherit; font-weight: 700; color: #101a28; background: #8ad8df; border: 0; border-radius: 10px; cursor: pointer; }
     .auth button:disabled, .panel button:disabled { opacity: .55; cursor: wait; }
     .auth .error, .panel .error { padding: 10px 12px; border: 1px solid #d07384; border-radius: 10px; color: #ffe3e8; background: #612a3544; }
+    .auth button.secondary { color: #ecf4ff; background: #2b405a; border: 1px solid #51667c; }
+    .probe { margin-top: 16px; padding-top: 4px; border-top: 1px solid #51667c; }
+    .probe .result { font-family: ui-monospace, monospace; font-size: 13px; overflow-wrap: anywhere; }
     .panel textarea { resize: vertical; min-height: 84px; }
     .panel .hint { margin: 4px 0 0; font-size: 14px; }
     .panel ul { margin: 14px 0 0; }
@@ -57,6 +60,10 @@
         <button id="logout-button" type="button">로그아웃</button>
       </div>
       <p id="auth-error" class="error" role="alert" hidden></p>
+      <div class="probe">
+        <button id="probe-button" type="button" class="secondary">로그인 없이 목록 요청해 보기</button>
+        <p id="probe-result" class="result" role="status" hidden></p>
+      </div>
     </section>
     <section class="panel" aria-labelledby="notes-title">
       <h2 id="notes-title">내 가상 메모</h2>
@@ -158,8 +165,11 @@
           throw new ApiError('네트워크 문제로 서버에 연결하지 못했습니다. 연결을 확인하세요.');
         }
         if (response.ok) return response.status === 204 ? null : response.json();
-        let code;
-        try { code = (await response.json()).error; } catch { code = undefined; }
+        let errorBody;
+        try { errorBody = await response.json(); } catch { errorBody = undefined; }
+        // 거부된 응답의 상태 코드와 JSON 오류를 브라우저 콘솔(F12 → Console)에 남깁니다. 오류 응답에는 자료가 없습니다.
+        console.warn(`${method} ${path} → HTTP ${response.status}`, errorBody);
+        const code = errorBody?.error;
         throw new ApiError(`${API_REASONS[code] ?? '요청을 처리하지 못했습니다.'} (HTTP ${response.status}${code ? `, ${code}` : ''})`);
       }
       const messageOf = (error) => (error instanceof ApiError ? error.message : '예기치 못한 오류가 났습니다.');
@@ -303,6 +313,34 @@
           }
         }
       }
+
+      // 점검 버튼: 일부러 Authorization 헤더 없이 목록을 요청하고, 상태 코드와 JSON 오류를 콘솔에 출력합니다.
+      const probeButton = document.querySelector('#probe-button');
+      const probeResult = document.querySelector('#probe-result');
+      probeButton.addEventListener('click', async () => {
+        probeButton.disabled = true;
+        probeResult.hidden = false;
+        probeResult.textContent = '요청 중입니다…';
+        try {
+          const response = await fetch('/api/notes', { cache: 'no-store' });
+          let body;
+          try { body = await response.json(); } catch { body = undefined; }
+          if (response.ok) {
+            // 거부되지 않았다면 자료가 돌아온 것입니다. 자료 내용은 콘솔에도 화면에도 출력하지 않습니다.
+            console.error(`로그인 없이 GET /api/notes → HTTP ${response.status}: 거부되지 않았습니다. (자료 내용은 출력하지 않습니다)`);
+            probeResult.textContent = `HTTP ${response.status}: 로그인 없이도 요청이 받아들여졌습니다. 서버 설정을 확인하세요.`;
+          } else {
+            console.warn(`로그인 없이 GET /api/notes → HTTP ${response.status}`, body);
+            const shown = body === undefined ? '(JSON이 아닌 응답)' : JSON.stringify(body).slice(0, 300);
+            probeResult.textContent = `HTTP ${response.status} ${shown} (브라우저 콘솔에도 출력했습니다)`;
+          }
+        } catch {
+          console.error('로그인 없이 GET /api/notes → 네트워크 문제로 요청하지 못했습니다.');
+          probeResult.textContent = '네트워크 문제로 요청하지 못했습니다. 연결을 확인하세요.';
+        } finally {
+          probeButton.disabled = false;
+        }
+      });
 
       if (typeof window.supabase?.createClient !== 'function') {
         loginButton.disabled = true;

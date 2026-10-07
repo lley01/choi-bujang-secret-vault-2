@@ -26,7 +26,9 @@ async function call(handler, request) {
 
 function assertRejectedWithoutData(out, store) {
   assert.equal(out.status, 401);
-  assert.deepEqual(out.body, { error: 'LOGIN_REQUIRED' });
+  assert.deepEqual(Object.keys(out.body), ['error', 'message']);
+  assert.equal(out.body.error, 'LOGIN_REQUIRED');
+  assert.match(out.body.message, /로그인이 필요합니다/u);
   assert.equal(out.headers.get('www-authenticate'), 'Bearer');
   assert.deepEqual(store.log.queries, [], '거부된 요청은 Supabase 자료 조회까지 가면 안 됩니다');
   assert.ok(!JSON.stringify(out.body).includes('실습용 가상'));

@@ -2,6 +2,21 @@
 
 이 저장소는 1단계에서 학생 본인이 GitHub 저장소와 Vercel 배포를 만드는 출발점입니다. 포함된 메모 네 건은 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 추가: 로그인 없는 요청의 거부 응답과 콘솔 출력
+
+**작동하는 기능**
+
+- 로그인 토큰이 없거나 검사에 실패한 요청은 모든 메모 경로에서 **401**과 JSON 오류를 돌려줍니다: `{ "error": "LOGIN_REQUIRED", "message": "로그인이 필요합니다. 유효한 로그인 토큰과 함께 요청해 주세요." }`. `error`는 바뀌지 않는 코드이고 `message`는 사람이 읽는 설명입니다. 응답에는 `WWW-Authenticate: Bearer` 헤더가 붙습니다.
+- 403이 아니라 401을 쓴 이유: 401은 "로그인(인증)이 안 됐다", 403은 "로그인은 했지만 권한이 없다"는 뜻입니다. 403은 4단계에서 소유자 검사로 남의 메모를 막을 때 쓸 자리로 남겨 둡니다.
+- **서버 콘솔**: 거부될 때마다 로컬 터미널이나 Vercel Logs에 `NOTES_LOGIN_REQUIRED {"status":401,"method":"GET","route":"collection","body":{...}}` 한 줄이 남습니다. 토큰·헤더·요청 본문은 기록하지 않습니다.
+- **브라우저 콘솔**: 화면의 API 호출이 거부되면 `GET /api/notes → HTTP 401 {error: ...}`처럼 상태와 JSON 오류가 남습니다. 또 로그인 영역의 **「로그인 없이 목록 요청해 보기」** 버튼은 일부러 로그인 정보 없이 `GET /api/notes`를 보내고 그 결과를 콘솔과 화면에 보여 줍니다. 거부되지 않고 자료가 돌아오면 경고만 하고 자료 내용은 출력하지 않습니다.
+
+**다시 실행하고 확인하는 방법**
+
+- 키·네트워크 없이 하는 로컬 시험: `npm run test:notes-api`와 `npm run test:login`
+- 배포 뒤 정상: 브라우저에서 F12 → Console을 열고 점검 버튼을 누르면 `로그인 없이 GET /api/notes → HTTP 401 {error: "LOGIN_REQUIRED", message: ...}`가 노란색 경고로 나옵니다. 서버 쪽 줄은 Vercel 프로젝트의 Logs에서 `NOTES_LOGIN_REQUIRED`로 찾을 수 있습니다.
+- 배포 뒤 거부되어야 할 결과: 위 401. 만약 HTTP 200이 나오면 로그인 검사가 빠진 것이니 배포를 확인하세요.
+
 ## 추가: 3단계 제작 3 「메모 추가·수정·삭제 화면과 서버 API, 허용 경로」
 
 **작동하는 기능**
@@ -17,7 +32,7 @@
 | `PUT /api/notes/:id` `{title, body}` | 수정. `owner_id`는 바꾸지 않습니다. | 200 `{id,title,body}` (없으면 404) |
 | `DELETE /api/notes/:id` | 삭제 | 204 (없으면 404). 지운 뒤 GET은 404 |
 
-- 토큰이 없거나 검사에 실패하면 모든 경로가 자료 없이 401로 거부합니다. 잘못된 입력은 400(`INVALID_JSON`, `INVALID_TITLE`(제목 1~200자), `INVALID_NOTE_BODY`(본문 5000자 이하), `INVALID_ID`), 허용되지 않은 방법은 405입니다.
+- 토큰이 없거나 검사에 실패하면 모든 경로가 자료 없이 401(`{error, message}`)로 거부합니다. 잘못된 입력은 400(`INVALID_JSON`, `INVALID_TITLE`(제목 1~200자), `INVALID_NOTE_BODY`(본문 5000자 이하), `INVALID_ID`), 허용되지 않은 방법은 405입니다.
 - 브라우저가 보낸 `userId`·`owner_id`·`role`은 읽지 않습니다. 신원은 토큰 검사 결과에서만 얻습니다.
 - 테이블 칸 이름은 `content`이고 API에서는 `body`라고 부릅니다. 새 환경변수와 테이블 변경은 없습니다.
 - `aleph.config.json`의 `allowedRoutes`에 위 다섯 경로를 `메서드 경로` 한 줄 모양으로 적었습니다. 이 모양은 `docs/DECIDER_REQUEST.md`의 `GET /notes/:id` 표기를 따른 것이며, `scripts/bundle.mjs`는 비어 있지 않은 배열인지만 확인합니다.
@@ -34,7 +49,7 @@
 
 - 키·네트워크 없이 하는 로컬 시험: `npm run test:notes-api` (전체는 `npm run test:login-api`, `npm run test:step2`, `npm run test:login`과 함께)
 - 배포 뒤 정상: 로그인하면 「내 가상 메모」에서 추가·수정·삭제가 되고, 새로고침해도 내 메모가 남아 있습니다.
-- 배포 뒤 거부되어야 할 결과: 로그아웃 상태로 `/api/notes`를 열면 401(`LOGIN_REQUIRED`)이고, 제목이 빈 요청은 400입니다.
+- 배포 뒤 거부되어야 할 결과: 로그인 없이 `/api/notes`를 요청하면 401(`LOGIN_REQUIRED`)이고, 제목이 빈 요청은 400입니다.
 
 ## 추가: 3단계 제작 2 「자료 API가 로그인 토큰을 검사합니다」
 
@@ -43,7 +58,7 @@
 - `src/notes-service.mjs`(`api/notes.js`·`api/notes/[id].js`가 불러 씀)가 요청의 `Authorization: Bearer <토큰>`을 시작 틀의 `src/verify-login.mjs`(`createLoginVerifier`)로 검사합니다. 도우미는 고치거나 새로 만들지 않고 불러 쓰기만 합니다.
 - 토큰이 없거나, 형식이 틀리거나, 검사에 실패하면 **자료 없이** 401(`LOGIN_REQUIRED`)로 거부합니다. 검사기를 만들 수 없는 설정 오류일 때도 자료를 주지 않고 500(`AUTH_UNAVAILABLE`)으로 닫습니다.
 - 검사를 통과하는 것은 심판이 발급한 정상 로그인(예: A)과, Supabase에 로그인한 학생입니다. 신원은 검사 결과(`kind`, `userId`)에서만 얻고, 브라우저가 보낸 `userId`·`role`(헤더·쿼리·본문)은 읽지 않습니다.
-- 화면은 로그인하면 세션 토큰을 `Authorization` 헤더에만 실어 `/api/notes`를 호출하고, 로그아웃하면 목록을 비웁니다. 로그인 전에는 자료 API를 부르지 않습니다.
+- 화면은 로그인하면 세션 토큰을 `Authorization` 헤더에만 실어 `/api/notes`를 호출하고, 로그아웃하면 목록을 비웁니다. 로그인 전에는 자료 API를 부르지 않습니다(점검 버튼을 누를 때만 로그인 없이 한 번 요청합니다).
 - `aleph.config.json`의 `identityProvider`에 검사에 쓰는 학생 로그인 발급자 정보(`issuer`·`audience`·`jwksUrl`)를 적었습니다. 모두 공개 값이며 비밀 키는 없습니다. 검사기가 요구하는 `publicAppUrl`(`https://….vercel.app/`)도 실제 배포 주소로 적었고, 심판 토큰의 대상은 이 주소의 호스트입니다.
 - 새 환경변수는 없습니다. 기존 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`만 씁니다.
 

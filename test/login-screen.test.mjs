@@ -43,3 +43,21 @@ test('화면은 로그인 토큰을 Authorization 헤더로만 보내고 userId�
     assert.doesNotMatch(page, forbidden);
   }
 });
+
+test('점검 버튼은 토큰 없이 목록을 요청해 상태·JSON 오류를 콘솔에 출력하고, 거부되지 않아도 자료 내용은 출력하지 않는다', () => {
+  assert.match(page, /id="probe-button"/u);
+  const start = page.indexOf("document.querySelector('#probe-button')");
+  const end = page.indexOf("if (typeof window.supabase?.createClient");
+  assert.ok(start > 0 && end > start);
+  const probe = page.slice(start, end);
+  assert.match(probe, /fetch\('\/api\/notes', \{ cache: 'no-store' \}\)/u);
+  assert.doesNotMatch(probe, /Authorization|getSession|access_token/u, '점검 요청에는 로그인 정보를 싣지 않는다');
+  assert.match(probe, /console\.warn\(`로그인 없이 GET \/api\/notes → HTTP \$\{response\.status\}`, body\)/u);
+  const accepted = probe.slice(probe.indexOf('if (response.ok) {'), probe.indexOf('} else {'));
+  assert.ok(accepted.includes('console.error('));
+  assert.doesNotMatch(accepted, /\bbody\b|json\(/u, '거부되지 않은 응답의 본문은 출력하지 않는다');
+});
+
+test('화면의 API 호출이 거부되면 상태 코드와 JSON 오류를 콘솔에 남긴다', () => {
+  assert.match(page, /console\.warn\(`\$\{method\} \$\{path\} → HTTP \$\{response\.status\}`, errorBody\)/u);
+});

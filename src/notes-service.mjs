@@ -21,6 +21,14 @@ const COLUMNS = 'id, title, content';
 const safeCode = (error) => (typeof error?.message === 'string' && /^[a-z_]{1,60}$/u.test(error.message)
   ? error.message : 'unknown');
 
+// 로그인 없이(또는 검사에 실패한 토큰으로) 요청하면 401과 이 JSON을 돌려줍니다.
+// 403이 아니라 401인 이유: 401은 '로그인이 안 됐다', 403은 '로그인은 했지만 권한이 없다'입니다. 403은 4단계의 소유자 검사에 남겨 둡니다.
+// error는 바뀌지 않는 코드, message는 사람이 읽는 설명입니다.
+const LOGIN_REQUIRED_BODY = Object.freeze({
+  error: 'LOGIN_REQUIRED',
+  message: '로그인이 필요합니다. 유효한 로그인 토큰과 함께 요청해 주세요.',
+});
+
 // 화면과 API의 이름은 body, 테이블의 칸 이름은 content 입니다.
 const toNote = (row) => ({ id: row.id, title: row.title, body: row.content });
 
@@ -60,7 +68,7 @@ export function createNotesService({ env = process.env, createSupabase = createC
   const fail = (response, status, error) => response.status(status).json({ error });
 
   // 공통 관문: 방법 확인 → 환경변수 → 로그인 토큰 검사. 통과하면 { identity, supabase }를 돌려주고, 아니면 이미 응답했으므로 null.
-  async function enter(request, response, allowed) {
+  async function enter(request, response, allowed, route) {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('Vary', 'Authorization');
     if (!allowed.includes(request.method)) {
@@ -85,7 +93,9 @@ export function createNotesService({ env = process.env, createSupabase = createC
     }
     if (!identity) {
       response.setHeader('WWW-Authenticate', 'Bearer');
-      fail(response, 401, 'LOGIN_REQUIRED');
+      // 거부 사실을 서버 콘솔(로컬 터미널, 배포에서는 Vercel Logs)에 남깁니다. 토큰·헤더·요청 본문은 기록하지 않습니다.
+      console.warn('NOTES_LOGIN_REQUIRED', JSON.stringify({ status: 401, method: request.method, route, body: LOGIN_REQUIRED_BODY }));
+      response.status(401).json({ ...LOGIN_REQUIRED_BODY });
       return null;
     }
     if (!UUID.test(identity.userId ?? '')) {
@@ -112,7 +122,7 @@ export function createNotesService({ env = process.env, createSupabase = createC
 
   // GET /api/notes (내 메모 목록), POST /api/notes (추가)
   async function collection(request, response) {
-    const entered = await enter(request, response, ['GET', 'POST']);
+    const entered = await enter(request, response, ['GET', 'POST'], 'collection');
     if (!entered) return undefined;
     const { identity, supabase } = entered;
     try {
@@ -145,7 +155,7 @@ export function createNotesService({ env = process.env, createSupabase = createC
 
   // GET·PUT·DELETE /api/notes/:id  (아직 소유자 검사 없음: 4단계에서 고칠 허점)
   async function item(request, response) {
-    const entered = await enter(request, response, ['GET', 'PUT', 'DELETE']);
+    const entered = await enter(request, response, ['GET', 'PUT', 'DELETE'], 'item');
     if (!entered) return undefined;
     const { supabase } = entered;
     const rawId = readPathId(request);

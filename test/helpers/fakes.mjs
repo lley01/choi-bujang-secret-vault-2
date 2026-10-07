@@ -16,11 +16,13 @@ export function fakeResponse() {
   return { response, out };
 }
 
+// console.error와 console.warn으로 나간 줄을 모아서 돌려줍니다.
 export async function withCapturedErrors(run) {
-  const original = console.error;
+  const originals = { error: console.error, warn: console.warn };
   const lines = [];
   console.error = (...args) => lines.push(args.map(String).join(' '));
-  try { await run(); } finally { console.error = original; }
+  console.warn = (...args) => lines.push(args.map(String).join(' '));
+  try { await run(); } finally { Object.assign(console, originals); }
   return lines;
 }
 

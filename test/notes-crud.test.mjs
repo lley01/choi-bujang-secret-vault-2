@@ -201,7 +201,9 @@ test('모든 경로·방법은 토큰이 없거나 엉터리면 자료·저장�
       const { store, service } = setup(seed);
       const out = await attempt(service, headers);
       assert.equal(out.status, 401, name);
-      assert.deepEqual(out.body, { error: 'LOGIN_REQUIRED' }, name);
+      assert.deepEqual(Object.keys(out.body), ['error', 'message'], name);
+      assert.equal(out.body.error, 'LOGIN_REQUIRED', name);
+      assert.match(out.body.message, /로그인이 필요합니다/u, name);
       assert.equal(out.headers.get('www-authenticate'), 'Bearer');
       assert.deepEqual(store.log.queries, [], `${name}은 저장소를 부르면 안 된다`);
       assert.equal(store.log.clients.length, 0);
@@ -291,4 +293,39 @@ test('Supabase 클라이언트를 만들다 예외가 나도 JSON 500으로 닫�
     assert.deepEqual(out.logs, ['NOTES_CLIENT_FAILED']);
     assert.ok(!JSON.stringify([out.body, out.logs]).includes(FAKE_ENV.SUPABASE_SECRET_KEY));
   }
+});
+
+test('로그인 없는 요청은 401과 JSON 오류 메시지를 돌려주고, 같은 내용을 서버 콘솔에 한 줄로 남긴다', async () => {
+  const id = crypto.randomUUID();
+  const attempts = [
+    ['collection', 'GET', (s, h) => list(s, h)],
+    ['collection', 'POST', (s, h) => post(s, h, { title: 't', body: 'b' })],
+    ['item', 'GET', (s, h) => one(s, 'GET', id, h)],
+    ['item', 'PUT', (s, h) => one(s, 'PUT', id, h, { title: 't', body: 'b' })],
+    ['item', 'DELETE', (s, h) => one(s, 'DELETE', id, h)],
+  ];
+  const secretish = 'Bearer aaa.bbb.ccc';
+  for (const [route, method, attempt] of attempts) {
+    for (const headers of [{}, { authorization: secretish, 'x-user-id': A_ID }]) {
+      const { service } = setup();
+      const out = await attempt(service, headers);
+      assert.equal(out.status, 401, `${method} ${route}`);
+      assert.deepEqual(Object.keys(out.body), ['error', 'message']);
+      assert.equal(out.body.error, 'LOGIN_REQUIRED');
+      assert.equal(out.headers.get('www-authenticate'), 'Bearer');
+      assert.equal(out.logs.length, 1, `${method} ${route}은 로그가 한 줄이어야 한다`);
+      const [name, json] = [out.logs[0].slice(0, out.logs[0].indexOf(' ')), out.logs[0].slice(out.logs[0].indexOf(' ') + 1)];
+      assert.equal(name, 'NOTES_LOGIN_REQUIRED');
+      assert.deepEqual(JSON.parse(json), { status: 401, method, route, body: out.body });
+      assert.ok(!out.logs[0].includes('aaa.bbb.ccc'), '토큰은 로그에 남지 않는다');
+      assert.ok(!out.logs[0].includes(A_ID), '헤더에 담긴 사용자 번호도 로그에 남지 않는다');
+    }
+  }
+});
+
+test('정상 로그인 요청은 401 경고 로그를 남기지 않는다', async () => {
+  const { service } = setup();
+  const out = await list(service, await withA());
+  assert.equal(out.status, 200);
+  assert.deepEqual(out.logs, []);
 });
