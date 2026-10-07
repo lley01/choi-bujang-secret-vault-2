@@ -16,6 +16,6 @@
     "PUT /api/notes/:id",
     "DELETE /api/notes/:id"
   ],
-  "originalApiUrl": null,
+  "originalApiUrl": "https://lley01-choi-bujang-secret-vault-git-main-lley01.vercel.app/api/notes",
   "restoreRoute": null
 }

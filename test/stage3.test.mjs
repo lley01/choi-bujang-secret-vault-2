@@ -18,7 +18,7 @@ test('설정은 3단계 이상이고 bundle.mjs가 3단계부터 요구하는 �
   assert.match(config.repoUrl, /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/u, 'repoUrl은 실제 GitHub 저장소 주소여야 합니다(자리표시자 금지)');
   assert.match(config.publicAppUrl, /^https:\/\/[a-z0-9.-]+\.vercel\.app\/$/u);
   assert.match(config.judgeIssuer, /^https:\/\/[a-z0-9-]+\.up\.railway\.app\/defense\/judge$/u);
-  assert.equal(config.originalApiUrl, null, '원본 API 주소는 5단계부터 씁니다');
+  assert.ok(config.originalApiUrl === null || config.originalApiUrl.startsWith('https://'), '원본 API 주소는 비어 있거나 https 주소여야 합니다(5단계부터 필수)');
 });
 
 test('로그인 발급자 정보는 화면이 쓰는 Supabase 프로젝트와 같은 프로젝트를 가리킨다', () => {

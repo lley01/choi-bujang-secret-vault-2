@@ -14,7 +14,7 @@ const vercelEnv = {
 test('설정은 4단계이고 허용 경로는 실제 메모 API 다섯 경로 그대로다', () => {
   assert.equal(config.step, 4);
   assert.deepEqual(config.allowedRoutes, ['GET /api/notes', 'POST /api/notes', 'GET /api/notes/:id', 'PUT /api/notes/:id', 'DELETE /api/notes/:id']);
-  assert.equal(config.originalApiUrl, null, '원본 API 주소는 5단계부터 씁니다');
+  assert.ok(config.originalApiUrl === null || config.originalApiUrl.startsWith('https://'), '원본 API 주소는 비어 있거나 https 주소여야 합니다(5단계부터 필수)');
 });
 
 test('소유자 검사 코드가 실제로 들어 있다(패치 파일만 있고 적용되지 않은 상태가 아님)', () => {

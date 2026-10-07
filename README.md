@@ -2,6 +2,30 @@
 
 이 저장소는 1단계에서 학생 본인이 GitHub 저장소와 Vercel 배포를 만드는 출발점입니다. 포함된 메모 네 건은 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 추가: 5단계 제작 「자료 요청을 서버 한곳으로 모읍니다」
+
+**작동하는 기능**
+
+- 브라우저 코드(`public/index.html`)는 메모 자료를 Supabase에서 직접 읽거나 고치지 않습니다. Supabase 클라이언트는 로그인(`auth`)에만 쓰고, 메모는 서버 함수(`/api/notes`, `/api/notes/:id`)만 부릅니다(`test/stage5.test.mjs`로 고정).
+- 서버 함수의 로그인 검사·소유자 검사와 서버 전용 설정(`SUPABASE_URL`, `SUPABASE_SECRET_KEY`)은 그대로입니다.
+- `aleph.config.json`의 `originalApiUrl`에 쿼리 없는 원본 자료 HTTPS 경로를 적었습니다: `https://lley01-choi-bujang-secret-vault-git-main-lley01.vercel.app/api/notes`(배포 주소와 같은 호스트의 `/api/notes`).
+
+**DB 직접 권한**
+
+- 메모 테이블(`public.notes`)의 PUBLIC·anon·authenticated 직접 권한을 거두는 SQL을 저장소 밖에서 제안했습니다. 실행하면 로그인 토큰이나 publishable key로 Supabase REST를 직접 부르는 길이 닫히고, 메모는 서버 함수를 거쳐서만 다룹니다. RLS·4단계 정책·`service_role` 권한·다른 테이블은 그대로 둡니다. 실행했는지는 이 저장소로 확인할 수 없으니 SQL의 ①·③ 확인 쿼리로 보세요.
+
+**아직 하지 않은 것**
+
+- `step`은 4 그대로입니다(5단계 저장점에서 대조합니다). `scripts/bundle.mjs`는 5단계부터 `originalApiUrl`에 https 주소를 요구합니다.
+- `publicAppUrl`과 `originalApiUrl`의 호스트는 실제 배포에서 열어 확인한 값이 아닙니다.
+- `src/attack-check.mjs`는 401·403이면 누가 답했든 "거부됨"으로 적습니다(4단계 저장점의 묶음에서 샌드박스 프록시의 403이 그렇게 기록됨). 제출 전에 고칠 대상입니다.
+
+**다시 실행하고 확인하는 방법**
+
+- 로컬 시험: `npm run test:stage5`
+- 배포 뒤 정상: a@example.com으로 로그인해 메모를 추가·수정·삭제할 수 있습니다.
+- 배포 뒤 거부되어야 할 결과(권한 SQL 실행 뒤): 로그인한 화면의 F12 → Console에서 Supabase REST를 직접 부르면 거부됩니다(예: `window.supabase.createClient(...)`로 만든 클라이언트의 `from('notes').select()` 결과가 permission denied 오류).
+
 ## 4단계 저장점: 현재 작동하는 기능과 다시 실행하는 방법
 
 **지금 되는 것**
@@ -20,7 +44,7 @@
 | `identityProvider` | `issuer`·`audience`·`jwksUrl` (공개 값) | 화면이 쓰는 Supabase 프로젝트와 같습니다(시험으로 확인). |
 | `allowedRoutes` | `GET /api/notes`, `POST /api/notes`, `GET /api/notes/:id`, `PUT /api/notes/:id`, `DELETE /api/notes/:id` | `api/notes.js`·`api/notes/[id].js`가 처리하는 메서드·경로와 같습니다(시험으로 확인). |
 | `judgeIssuer` | 운영 측이 채운 값 | 바꾸지 않았습니다. |
-| `originalApiUrl` | `null` | 5단계부터 씁니다. |
+| `originalApiUrl` | `null`(4단계 저장점 당시) | 5단계 제작에서 `…/api/notes`로 채웠습니다(맨 위 참고). |
 
 **DB 권한**
 
