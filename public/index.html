@@ -16,16 +16,143 @@
     li { border: 1px solid #51667c; border-radius: 14px; padding: 17px 19px; background: #1a2a3d; }
     strong { display: block; font-size: 18px; margin-bottom: 5px; }
     li span { color: #bfd0e5; }
+    .auth { margin: 26px 0; padding: 18px 19px; border: 1px solid #51667c; border-radius: 14px; background: #162436; }
+    .auth h2 { margin: 0 0 6px; font-size: 20px; }
+    .auth p { margin: 6px 0; font-size: 15px; }
+    .auth label { display: block; margin: 12px 0 0; font-size: 14px; color: #bfd0e5; }
+    .auth input { box-sizing: border-box; width: 100%; margin-top: 5px; padding: 11px 12px; font: inherit; color: #ecf4ff; background: #101a28; border: 1px solid #51667c; border-radius: 10px; }
+    .auth input:focus-visible, .auth button:focus-visible { outline: 2px solid #8ad8df; outline-offset: 2px; }
+    .auth button { margin-top: 14px; padding: 10px 18px; font: inherit; font-weight: 700; color: #101a28; background: #8ad8df; border: 0; border-radius: 10px; cursor: pointer; }
+    .auth button:disabled { opacity: .55; cursor: wait; }
+    .auth .error { padding: 10px 12px; border: 1px solid #d07384; border-radius: 10px; color: #ffe3e8; background: #612a3544; }
   </style>
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 2단계 자료를 코드 밖으로</div>
+    <div class="eyebrow">BYTE BACK · 3단계 로그인 화면</div>
     <h1>점령된 자료실</h1>
     <p>자료는 코드 밖(Supabase)에 있고, 서버 함수가 대신 읽어 옵니다. 아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
-    <div class="notice">아직 이 서버 함수 주소(/api/notes)는 공개입니다. 로그인하지 않은 방문자도 자료를 볼 수 있습니다. 다음 제작 단계에서 접근을 차례로 막아 주세요.</div>
+    <div class="notice">로그인·로그아웃 화면만 붙은 상태입니다. 서버 함수 주소(/api/notes)는 아직 로그인과 상관없이 공개이고, 로그인하지 않은 방문자도 자료를 볼 수 있습니다. 다음 제작 단계에서 접근을 차례로 막아 주세요.</div>
+    <section class="auth" aria-labelledby="auth-title">
+      <h2 id="auth-title">로그인</h2>
+      <p id="auth-status" role="status">로그인하지 않았습니다.</p>
+      <form id="login-form" novalidate>
+        <label for="login-email">이메일
+          <input id="login-email" name="email" type="email" autocomplete="username" inputmode="email" required>
+        </label>
+        <label for="login-password">비밀번호
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button id="login-button" type="submit">로그인</button>
+      </form>
+      <div id="signed-in" hidden>
+        <button id="logout-button" type="button">로그아웃</button>
+      </div>
+      <p id="auth-error" class="error" role="alert" hidden></p>
+    </section>
     <ul id="notes" aria-live="polite"><li>가상 자료를 불러오는 중입니다.</li></ul>
   </main>
+  <script src="/vendor/supabase.js"></script>
+  <script>
+    // Supabase Auth 이메일·비밀번호 로그인·로그아웃. 공식 SDK(supabase-js)의 흐름만 씁니다.
+    // 아래 두 값은 공개용입니다(Project URL, publishable key). 서버 전용 secret key는 절대 이 파일에 넣지 마세요.
+    (() => {
+      const SUPABASE_URL = 'https://iaifwhhyhzyacfdwziuo.supabase.co';
+      const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_0s8RhycDB2bOIs4azTCLZQ_KoMi0l3j';
+
+      const form = document.querySelector('#login-form');
+      const emailInput = document.querySelector('#login-email');
+      const passwordInput = document.querySelector('#login-password');
+      const loginButton = document.querySelector('#login-button');
+      const logoutButton = document.querySelector('#logout-button');
+      const signedIn = document.querySelector('#signed-in');
+      const status = document.querySelector('#auth-status');
+      const errorBox = document.querySelector('#auth-error');
+
+      const REASONS = {
+        invalid_credentials: '이메일 또는 비밀번호가 맞지 않습니다.',
+        email_not_confirmed: '이메일 인증이 아직 끝나지 않았습니다. 받은 편지함의 인증 메일을 먼저 확인하세요.',
+        user_banned: '이 계정은 지금 사용할 수 없습니다.',
+        validation_failed: '이메일 또는 비밀번호 형식이 올바르지 않습니다.',
+        over_request_rate_limit: '요청이 너무 많습니다. 잠시 뒤에 다시 시도하세요.',
+        email_provider_disabled: 'Supabase에서 이메일 로그인이 꺼져 있습니다. 프로젝트의 Auth 설정을 확인하세요.',
+      };
+
+      function showError(message) {
+        errorBox.textContent = message;
+        errorBox.hidden = false;
+      }
+      function clearError() {
+        errorBox.textContent = '';
+        errorBox.hidden = true;
+      }
+      function reasonOf(error, fallback) {
+        const known = REASONS[error?.code];
+        if (known) return `${known} (오류 코드: ${error.code})`;
+        if (error?.name === 'AuthRetryableFetchError' || error?.status === 0) {
+          return '네트워크 문제로 Supabase에 연결하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.';
+        }
+        const detail = [error?.message, error?.code && `오류 코드: ${error.code}`, error?.status && `HTTP ${error.status}`]
+          .filter(Boolean).join(' · ');
+        return `${fallback}${detail ? ` (${detail})` : ''}`;
+      }
+      function render(session) {
+        const email = session?.user?.email;
+        form.hidden = Boolean(session);
+        signedIn.hidden = !session;
+        status.textContent = session
+          ? `로그인됨: ${email ?? '(이메일 정보 없음)'}`
+          : '로그인하지 않았습니다.';
+      }
+
+      if (typeof window.supabase?.createClient !== 'function') {
+        loginButton.disabled = true;
+        showError('로그인 모듈(/vendor/supabase.js)을 불러오지 못했습니다. 배포 빌드 기록을 확인하세요.');
+        return;
+      }
+      const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+      });
+
+      client.auth.onAuthStateChange((_event, session) => render(session));
+      client.auth.getSession().then(({ data }) => render(data?.session ?? null))
+        .catch(() => render(null));
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        clearError();
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
+        if (!email || !password) {
+          showError('이메일과 비밀번호를 모두 입력하세요.');
+          return;
+        }
+        loginButton.disabled = true;
+        try {
+          const { error } = await client.auth.signInWithPassword({ email, password });
+          if (error) showError(reasonOf(error, '로그인에 실패했습니다.'));
+        } catch (error) {
+          showError(reasonOf(error, '로그인 중 예기치 못한 오류가 났습니다.'));
+        } finally {
+          passwordInput.value = '';
+          loginButton.disabled = false;
+        }
+      });
+
+      logoutButton.addEventListener('click', async () => {
+        clearError();
+        logoutButton.disabled = true;
+        try {
+          const { error } = await client.auth.signOut();
+          if (error) showError(reasonOf(error, '로그아웃에 실패했습니다.'));
+        } catch (error) {
+          showError(reasonOf(error, '로그아웃 중 예기치 못한 오류가 났습니다.'));
+        } finally {
+          logoutButton.disabled = false;
+        }
+      });
+    })();
+  </script>
   <script type="module">
     const list = document.querySelector('#notes');
     try {
