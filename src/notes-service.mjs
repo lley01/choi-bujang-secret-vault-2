@@ -11,6 +11,7 @@
 import { createClient } from '@supabase/supabase-js';
 import alephConfig from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from './verify-login.mjs';
+import { bearerFromCookie } from './auth-cookies.mjs';
 
 const MAX_LIST = 100;
 const MAX_TITLE = 200;
@@ -86,7 +87,8 @@ export function createNotesService({ env = process.env, createSupabase = createC
     }
     let identity;
     try {
-      identity = await getVerifier()(request.headers?.authorization);
+      // Authorization 헤더가 있으면 그것만 검사합니다(심판의 로그인). 없을 때만 화면 로그인의 HttpOnly 쿠키 토큰을 같은 검사기로 검사합니다.
+      identity = await getVerifier()(request.headers?.authorization ?? bearerFromCookie(request.headers?.cookie));
     } catch (error) {
       console.error('NOTES_AUTH_UNAVAILABLE', safeCode(error));
       fail(response, 500, 'AUTH_UNAVAILABLE');

@@ -81,13 +81,10 @@
       <ul id="notes" aria-live="polite"><li>로그인하면 가상 자료를 볼 수 있습니다.</li></ul>
     </section>
   </main>
-  <script src="/vendor/supabase.js"></script>
   <script>
-    // Supabase Auth 이메일·비밀번호 로그인·로그아웃. 공식 SDK(supabase-js)의 흐름만 씁니다.
-    // 아래 두 값은 공개용입니다(Project URL, publishable key). 서버 전용 secret key는 절대 이 파일에 넣지 마세요.
+    // 이메일·비밀번호 로그인·로그아웃은 서버 함수(/api/auth/*)가 처리합니다. 이 화면 코드에는 Supabase 주소·키·토큰이 없습니다.
+    // 로그인 세션은 서버가 준 HttpOnly 쿠키에만 있어서 이 스크립트가 읽을 수 없고, 같은 사이트의 /api 요청에만 실립니다.
     (() => {
-      const SUPABASE_URL = 'https://iaifwhhyhzyacfdwziuo.supabase.co';
-      const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_0s8RhycDB2bOIs4azTCLZQ_KoMi0l3j';
 
       const form = document.querySelector('#login-form');
       const emailInput = document.querySelector('#login-email');
@@ -98,15 +95,6 @@
       const status = document.querySelector('#auth-status');
       const errorBox = document.querySelector('#auth-error');
 
-      const REASONS = {
-        invalid_credentials: '이메일 또는 비밀번호가 맞지 않습니다.',
-        email_not_confirmed: '이메일 인증이 아직 끝나지 않았습니다. 받은 편지함의 인증 메일을 먼저 확인하세요.',
-        user_banned: '이 계정은 지금 사용할 수 없습니다.',
-        validation_failed: '이메일 또는 비밀번호 형식이 올바르지 않습니다.',
-        over_request_rate_limit: '요청이 너무 많습니다. 잠시 뒤에 다시 시도하세요.',
-        email_provider_disabled: 'Supabase에서 이메일 로그인이 꺼져 있습니다. 프로젝트의 Auth 설정을 확인하세요.',
-      };
-
       function showError(message) {
         errorBox.textContent = message;
         errorBox.hidden = false;
@@ -115,17 +103,31 @@
         errorBox.textContent = '';
         errorBox.hidden = true;
       }
-      function reasonOf(error, fallback) {
-        const known = REASONS[error?.code];
-        if (known) return `${known} (오류 코드: ${error.code})`;
-        if (error?.name === 'AuthRetryableFetchError' || error?.status === 0) {
-          return '네트워크 문제로 Supabase에 연결하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.';
+      // 로그인 서버 함수 호출. 실패하면 서버가 준 이유(message)와 오류 코드를 보여 줍니다.
+      async function authRequest(method, path, payload) {
+        let response;
+        try {
+          response = await fetch(path, {
+            method, cache: 'no-store', credentials: 'same-origin',
+            headers: payload === undefined ? {} : { 'Content-Type': 'application/json' },
+            body: payload === undefined ? undefined : JSON.stringify(payload),
+          });
+        } catch {
+          return { ok: false, status: 0, body: null };
         }
-        const detail = [error?.message, error?.code && `오류 코드: ${error.code}`, error?.status && `HTTP ${error.status}`]
-          .filter(Boolean).join(' · ');
-        return `${fallback}${detail ? ` (${detail})` : ''}`;
+        let body = null;
+        if (response.status !== 204) {
+          try { body = await response.json(); } catch { body = null; }
+        }
+        return { ok: response.ok, status: response.status, body };
       }
-      // 메모 API 호출. 로그인 토큰은 같은 사이트의 /api/notes 요청 헤더에만 싣습니다. 화면에 보이거나 기록하지 않습니다.
+      function reasonOf(result, fallback) {
+        if (result.status === 0) return '네트워크 문제로 서버에 연결하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.';
+        const message = typeof result.body?.message === 'string' ? result.body.message : fallback;
+        const code = result.body?.code ?? result.body?.error;
+        return `${message} (${code ? `오류 코드: ${code}, ` : ''}HTTP ${result.status})`;
+      }
+      // 메모 API 호출. 로그인 정보는 브라우저가 HttpOnly 쿠키로 자동으로 싣습니다. 화면 코드는 토큰을 만지지 않습니다.
       // 사용자 번호나 역할 같은 신원 값은 보내지 않습니다. 서버가 토큰을 검사해 사용자를 정합니다.
       const list = document.querySelector('#notes');
       const noteForm = document.querySelector('#note-form');
@@ -150,19 +152,22 @@
       };
       class ApiError extends Error {}
 
-      async function callApi(method, path, payload) {
-        const { data } = await client.auth.getSession();
-        const accessToken = data?.session?.access_token;
-        if (!accessToken) throw new ApiError('로그인이 필요합니다. 먼저 로그인하세요.');
+      async function callApi(method, path, payload, retried = false) {
+        if (!currentEmail) throw new ApiError('로그인이 필요합니다. 먼저 로그인하세요.');
         let response;
         try {
           response = await fetch(path, {
-            method, cache: 'no-store',
-            headers: { Authorization: `Bearer ${accessToken}`, ...(payload === undefined ? {} : { 'Content-Type': 'application/json' }) },
+            method, cache: 'no-store', credentials: 'same-origin',
+            headers: payload === undefined ? {} : { 'Content-Type': 'application/json' },
             body: payload === undefined ? undefined : JSON.stringify(payload),
           });
         } catch {
           throw new ApiError('네트워크 문제로 서버에 연결하지 못했습니다. 연결을 확인하세요.');
+        }
+        // 로그인 토큰이 만료됐으면 서버에서 한 번 갱신하고 같은 요청을 한 번만 다시 보냅니다.
+        if (response.status === 401 && !retried) {
+          const refreshed = await authRequest('GET', '/api/auth/session');
+          if (refreshed.ok) return callApi(method, path, payload, true);
         }
         if (response.ok) return response.status === 204 ? null : response.json();
         let errorBody;
@@ -190,7 +195,7 @@
       const setBusy = (container, busy) => container.querySelectorAll('button, input, textarea').forEach((node) => { node.disabled = busy; });
 
       let loadId = 0;
-      let loadedToken;
+      let currentEmail = null;
       async function loadNotes() {
         const myId = ++loadId;
         showListMessage('가상 자료를 불러오는 중입니다.');
@@ -290,19 +295,16 @@
         }
       });
 
-      function render(session) {
-        const email = session?.user?.email;
-        form.hidden = Boolean(session);
-        signedIn.hidden = !session;
-        noteForm.hidden = !session;
-        status.textContent = session
-          ? `로그인됨: ${email ?? '(이메일 정보 없음)'}`
-          : '로그인하지 않았습니다.';
-        const token = session?.access_token ?? null;
-        if (token !== loadedToken) {
-          const signedOut = !token;
-          loadedToken = token;
-          if (signedOut) {
+      // 로그인 상태 표시. email은 서버 함수가 확인해 준 값이고, null이면 로그아웃 상태입니다.
+      function render(email) {
+        const changed = email !== currentEmail;
+        currentEmail = email;
+        form.hidden = Boolean(email);
+        signedIn.hidden = !email;
+        noteForm.hidden = !email;
+        status.textContent = email ? `로그인됨: ${email}` : '로그인하지 않았습니다.';
+        if (changed) {
+          if (!email) {
             loadId += 1;
             noteTitle.value = '';
             noteBody.value = '';
@@ -314,7 +316,9 @@
         }
       }
 
-      // 점검 버튼: 일부러 Authorization 헤더 없이 목록을 요청하고, 상태 코드와 JSON 오류를 콘솔에 출력합니다.
+      const emailOf = (body) => (typeof body?.email === 'string' && body.email ? body.email : '(이메일 정보 없음)');
+
+      // 점검 버튼: 일부러 로그인 정보(쿠키·헤더) 없이 목록을 요청하고, 상태 코드와 JSON 오류를 콘솔에 출력합니다.
       const probeButton = document.querySelector('#probe-button');
       const probeResult = document.querySelector('#probe-result');
       probeButton.addEventListener('click', async () => {
@@ -322,7 +326,7 @@
         probeResult.hidden = false;
         probeResult.textContent = '요청 중입니다…';
         try {
-          const response = await fetch('/api/notes', { cache: 'no-store' });
+          const response = await fetch('/api/notes', { cache: 'no-store', credentials: 'omit' });
           let body;
           try { body = await response.json(); } catch { body = undefined; }
           if (response.ok) {
@@ -342,18 +346,8 @@
         }
       });
 
-      if (typeof window.supabase?.createClient !== 'function') {
-        loginButton.disabled = true;
-        showError('로그인 모듈(/vendor/supabase.js)을 불러오지 못했습니다. 배포 빌드 기록을 확인하세요.');
-        return;
-      }
-      const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-      });
-
-      client.auth.onAuthStateChange((_event, session) => render(session));
-      client.auth.getSession().then(({ data }) => render(data?.session ?? null))
-        .catch(() => render(null));
+      // 첫 화면: 서버에 로그인 상태를 묻습니다(쿠키가 있으면 서버가 확인·갱신합니다).
+      authRequest('GET', '/api/auth/session').then((result) => render(result.ok ? emailOf(result.body) : null));
 
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -366,10 +360,9 @@
         }
         loginButton.disabled = true;
         try {
-          const { error } = await client.auth.signInWithPassword({ email, password });
-          if (error) showError(reasonOf(error, '로그인에 실패했습니다.'));
-        } catch (error) {
-          showError(reasonOf(error, '로그인 중 예기치 못한 오류가 났습니다.'));
+          const result = await authRequest('POST', '/api/auth/login', { email, password });
+          if (result.ok) render(emailOf(result.body));
+          else showError(reasonOf(result, '로그인에 실패했습니다.'));
         } finally {
           passwordInput.value = '';
           loginButton.disabled = false;
@@ -380,10 +373,9 @@
         clearError();
         logoutButton.disabled = true;
         try {
-          const { error } = await client.auth.signOut();
-          if (error) showError(reasonOf(error, '로그아웃에 실패했습니다.'));
-        } catch (error) {
-          showError(reasonOf(error, '로그아웃 중 예기치 못한 오류가 났습니다.'));
+          const result = await authRequest('POST', '/api/auth/logout');
+          if (result.ok) render(null);
+          else showError(reasonOf(result, '로그아웃에 실패했습니다.'));
         } finally {
           logoutButton.disabled = false;
         }

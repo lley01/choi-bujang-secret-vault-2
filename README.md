@@ -2,11 +2,42 @@
 
 이 저장소는 1단계에서 학생 본인이 GitHub 저장소와 Vercel 배포를 만드는 출발점입니다. 포함된 메모 네 건은 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 추가: 5단계 개선 「키는 서버 함수에만, 허용 경로는 배포 파일에」
+
+**작동하는 기능**
+
+- **화면 코드에 Supabase 키·주소가 없습니다.** 로그인·로그아웃은 서버 함수가 서버 전용 설정(`SUPABASE_URL`, `SUPABASE_SECRET_KEY`)으로 Supabase Auth를 불러 처리합니다. 새 환경변수는 없습니다.
+
+| 요청 | 하는 일 | 응답 |
+|---|---|---|
+| `POST /api/auth/login` `{email, password}` | 로그인 | 200 `{email}` + 세션 쿠키. 실패하면 `{error, code, message}`(예: 401 `invalid_credentials`) |
+| `GET /api/auth/session` | 로그인 상태 확인(만료됐으면 갱신) | 200 `{email}` 또는 401 |
+| `POST /api/auth/logout` | 이 세션을 끊고 쿠키 삭제 | 204 |
+
+- 로그인 토큰은 **HttpOnly·Secure·SameSite=Strict 쿠키**(`aleph_at`, `aleph_rt`)로만 브라우저에 있습니다. 화면 스크립트는 토큰을 읽거나 저장하지 않고, 응답 본문과 로그에도 토큰·이메일·비밀번호가 나가지 않습니다. 브라우저 저장소에 세션을 두던 예전 약점도 함께 없어졌습니다.
+- 로그인 요청은 JSON이어야 하고, 다른 사이트(`Origin`이 다른 곳)에서 온 로그인·로그아웃 요청은 403으로 막습니다.
+- 메모 API는 `Authorization` 헤더가 있으면 그것만 검사하고(심판의 로그인), 없을 때만 쿠키의 토큰을 **같은 검사기**(`src/verify-login.mjs`)로 검사합니다. 소유자 검사는 그대로입니다. 「로그인 없이 목록 요청해 보기」 버튼은 쿠키를 빼고(`credentials: 'omit'`) 보냅니다.
+- 빌드는 브라우저용 Supabase SDK를 더 이상 내려주지 않습니다(`public/vendor/` 없음).
+- **배포 파일 `/aleph.json`에 `allowedRoutes`**가 실립니다(3단계부터, `메서드 경로` 모양 1~20개, 형식이 틀리면 빌드 중단). 로그인 경로 세 줄을 더해 지금 허용 경로는 여덟 줄입니다.
+- 첫 화면 보안 헤더(`X-Content-Type-Options: nosniff`)는 `vercel.json`에 이미 있어 그대로입니다.
+
+**아직 하지 않은 것**
+
+- 로그인 요청이 모두 Vercel 서버에서 Supabase로 가므로, Supabase의 IP별 로그인 횟수 제한에 여러 사용자가 함께 걸릴 수 있습니다(학습용 규모에서는 문제가 적음).
+- 세션 쿠키는 `Secure`라 https(배포 주소)나 `localhost`에서만 동작합니다.
+- 실제 Vercel 배포와 실제 Supabase 계정으로는 이 저장소에서 확인하지 못했습니다(가짜 Supabase 응답과 가상 브라우저로 확인).
+
+**다시 실행하고 확인하는 방법**
+
+- 로컬 시험: `npm run test:auth`, `npm run test:login`, `npm run test:stage5`
+- 배포 뒤 정상: a@example.com으로 로그인하면 메모 추가·수정·삭제가 되고, 새로고침해도 로그인이 유지됩니다. `/aleph.json`에 `allowedRoutes`와 `originalApiUrl`이 보입니다.
+- 배포 뒤 확인: 첫 화면에서 F12 → Sources(또는 페이지 소스 보기)로 `sb_publishable_`와 `supabase.co`를 찾으면 없어야 합니다. F12 → Application → Cookies에서 `aleph_at`의 HttpOnly가 체크되어 있어야 합니다.
+
 ## 5단계 저장점: 현재 작동하는 기능과 다시 실행하는 방법
 
 **지금 되는 것**
 
-- 이메일·비밀번호 로그인·로그아웃 화면(Supabase Auth 공식 SDK). 브라우저는 Supabase를 **로그인에만** 쓰고, 메모 자료는 서버 함수(`/api/notes`, `/api/notes/:id`)로만 읽고 씁니다.
+- 이메일·비밀번호 로그인·로그아웃 화면. (5단계 개선 뒤) 로그인도 서버 함수(`/api/auth/*`)가 하고 화면 코드는 Supabase를 부르지 않습니다. 메모 자료는 서버 함수(`/api/notes`, `/api/notes/:id`)로만 읽고 씁니다.
 - 서버 함수는 모든 요청의 로그인 토큰을 시작 틀의 `src/verify-login.mjs`로 검사하고(없거나 틀리면 401 `{error, message}`), 확인된 사용자 ID와 `owner_id`가 같은 메모만 다룹니다(남의 메모는 404). DB는 서버 전용 키로만 접근합니다.
 - 공개 `data.json`은 없고 자료는 Supabase `public.notes`에 있습니다.
 
@@ -18,7 +49,7 @@
 | `repoUrl` | `https://github.com/lley01/choi-bujang-secret-vault-2` | Git `origin`과 같습니다. |
 | `publicAppUrl` | `…-git-main-lley01.vercel.app/` | 알려 준 배포 주소입니다. 실제 배포에서 열어 확인한 값이 아닙니다. |
 | `identityProvider` | `issuer`·`audience`·`jwksUrl` (공개 값) | 화면이 쓰는 Supabase 프로젝트와 같습니다(시험으로 확인). |
-| `allowedRoutes` | `GET /api/notes`, `POST /api/notes`, `GET /api/notes/:id`, `PUT /api/notes/:id`, `DELETE /api/notes/:id` | 서버 함수가 처리하는 메서드·경로와 같습니다(시험으로 확인). |
+| `allowedRoutes` | 메모 다섯 경로 + (5단계 개선) `GET /api/auth/session`, `POST /api/auth/login`, `POST /api/auth/logout` | 서버 함수가 처리하는 메서드·경로와 같고, 배포 파일 `/aleph.json`에도 실립니다(시험으로 확인). |
 | `originalApiUrl` | `https://iaifwhhyhzyacfdwziuo.supabase.co/rest/v1/notes` | 쿼리 없는 원본 자료 HTTPS 경로, 즉 학습 DB(Supabase)의 메모 자료 API입니다. 공개 키·시험 계정 토큰으로 직접 부르면 `403 42501`로 막힙니다(5단계 고침, 브라우저에서 확인). |
 | `judgeIssuer` | 운영 측이 채운 값 | 바꾸지 않았습니다. |
 

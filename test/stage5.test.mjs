@@ -24,13 +24,13 @@ test('originalApiUrl은 쿼리 없는 원본 자료 HTTPS 경로, 즉 학습 DB(
   assert.doesNotMatch(config.originalApiUrl, /sb_(publishable|secret)_|apikey|token|eyJ/iu, '비밀값·키를 넣지 않습니다');
 });
 
-test('브라우저 코드는 메모 자료를 Supabase에서 직접 읽거나 고치지 않고 서버 함수만 부른다(로그인 호출은 예외)', () => {
-  for (const direct of [/\.from\(/u, /rest\/v1/u, /\.rpc\(/u, /\.storage\b/u, /\.channel\(/u, /realtime/iu]) {
+test('브라우저 코드는 Supabase를 직접 부르지 않고(로그인 포함) 서버 함수만 부른다', () => {
+  for (const direct of [/\.from\(/u, /rest\/v1/u, /\.rpc\(/u, /\.storage\b/u, /\.channel\(/u, /realtime/iu,
+    /supabase\.co/u, /createClient/u, /\bclient\./u, /vendor\/supabase/u]) {
     assert.doesNotMatch(page, direct, `화면 코드에 ${direct}가 있으면 안 됩니다`);
   }
-  const clientCalls = [...page.matchAll(/\bclient\.([a-zA-Z]+)/gu)].map((m) => m[1]);
-  assert.ok(clientCalls.length > 0);
-  assert.deepEqual([...new Set(clientCalls)], ['auth'], 'Supabase 클라이언트는 로그인(auth)에만 씁니다');
+  const authTargets = [...page.matchAll(/authRequest\('[A-Z]+', '([^']+)'/gu)].map((m) => m[1]);
+  assert.deepEqual([...new Set(authTargets)].sort(), ['/api/auth/login', '/api/auth/logout', '/api/auth/session']);
   const fetchTargets = [...page.matchAll(/callApi\('[A-Z]+', [`']([^`']+)[`']/gu)].map((m) => m[1].replace(/\$\{[^}]+\}/u, ':id'));
   assert.deepEqual([...new Set(fetchTargets)].sort(), ['/api/notes', '/api/notes/:id']);
 });
@@ -116,9 +116,21 @@ test('실제 빌드(Vercel 흉내)가 만든 public/aleph.json에 originalApiUrl
     const written = JSON.parse(readFileSync(output, 'utf8'));
     assert.equal(written.step, 5);
     assert.equal(written.originalApiUrl, config.originalApiUrl);
+    assert.deepEqual(written.allowedRoutes, config.allowedRoutes, '심판이 읽는 /aleph.json에 허용 경로');
     assert.match(written.originalApiUrl, /^https:\/\/[^?#]+$/u);
     assert.doesNotMatch(JSON.stringify(written), /sb_(publishable|secret)_|eyJ[A-Za-z0-9_-]{12,}/u, '키·토큰이 들어가면 안 됩니다');
   } finally {
     rmSync(output, { force: true });
+  }
+});
+
+test('배포 파일(/aleph.json)에 3단계부터 허용 경로가 하나 이상 실리고, 형식이 틀리면 빌드를 멈춘다', () => {
+  const identity = deploymentIdentity(vercelEnv, config);
+  assert.deepEqual(identity.allowedRoutes, config.allowedRoutes);
+  assert.ok(identity.allowedRoutes.length >= 1);
+  assert.deepEqual(deploymentIdentity(vercelEnv, { ...config, step: 3 }).allowedRoutes, config.allowedRoutes);
+  assert.equal('allowedRoutes' in deploymentIdentity(vercelEnv, { ...config, step: 2 }), false, '2단계 이하의 형식은 그대로');
+  for (const allowedRoutes of [[], null, undefined, ['/api/notes'], ['GET api/notes'], ['GET /api/notes?x=1'], [1]]) {
+    assert.throws(() => deploymentIdentity(vercelEnv, { ...config, allowedRoutes }), /allowedRoutes/u, JSON.stringify(allowedRoutes));
   }
 });

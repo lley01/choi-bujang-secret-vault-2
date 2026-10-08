@@ -22,15 +22,8 @@ if (config.step === 1) {
   await rm(output, { force: true });
   console.log(`${config.step}단계: 공개 data.json을 만들지 않았습니다. 자료는 /api/notes 서버 함수가 읽습니다.`);
 }
-// 로그인 화면이 쓰는 공식 SDK(supabase-js)의 브라우저용 파일을 우리 서버에서 내려줍니다. 외부 CDN은 쓰지 않습니다.
-const sdkSource = resolve(root, 'node_modules', '@supabase', 'supabase-js', 'dist', 'umd', 'supabase.js');
-try {
-  await mkdir(resolve(root, 'public', 'vendor'), { recursive: true });
-  await copyFile(sdkSource, resolve(root, 'public', 'vendor', 'supabase.js'));
-} catch {
-  throw new Error('supabase-js 브라우저 파일을 복사하지 못했습니다. npm install로 의존성을 설치한 뒤 다시 빌드하세요.');
-}
-console.log('공식 SDK를 public/vendor/supabase.js에 복사했습니다.');
+// 로그인은 서버 함수(/api/auth/*)가 하므로 브라우저용 Supabase SDK를 내려주지 않습니다. 예전 빌드의 복사본이 남아 있으면 지웁니다.
+await rm(resolve(root, 'public', 'vendor'), { recursive: true, force: true });
 if (!process.argv.includes('--local')) {
   const identity = deploymentIdentity(process.env, config);
   await writeFile(resolve(root, 'public', 'aleph.json'),

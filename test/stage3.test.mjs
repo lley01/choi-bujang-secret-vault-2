@@ -21,10 +21,11 @@ test('설정은 3단계 이상이고 bundle.mjs가 3단계부터 요구하는 �
   assert.ok(config.originalApiUrl === null || config.originalApiUrl.startsWith('https://'), '원본 API 주소는 비어 있거나 https 주소여야 합니다(5단계부터 필수)');
 });
 
-test('로그인 발급자 정보는 화면이 쓰는 Supabase 프로젝트와 같은 프로젝트를 가리킨다', () => {
-  const page = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-  const projectUrl = /const SUPABASE_URL = '(https:\/\/[a-z0-9]+\.supabase\.co)'/u.exec(page)?.[1];
+test('로그인 발급자 정보는 학습 DB와 같은 Supabase 프로젝트를 가리킨다', () => {
+  // 화면 코드에는 Supabase 주소가 없습니다(로그인은 서버 함수). 원본 자료 주소(5단계부터)와 같은 프로젝트인지 봅니다.
+  const projectUrl = /^(https:\/\/[a-z0-9]+\.supabase\.co)\/auth\/v1$/u.exec(config.identityProvider.issuer)?.[1];
   assert.ok(projectUrl);
+  if (config.originalApiUrl) assert.equal(new URL(config.originalApiUrl).origin, projectUrl);
   assert.equal(config.identityProvider.issuer, `${projectUrl}/auth/v1`);
   assert.equal(config.identityProvider.jwksUrl, `${projectUrl}/auth/v1/.well-known/jwks.json`);
 });

@@ -11,9 +11,11 @@ const vercelEnv = {
   VERCEL_GIT_COMMIT_SHA: 'b'.repeat(40), VERCEL_URL: 'defense-app-def456.vercel.app',
 };
 
-test('설정은 4단계 이상이고 허용 경로는 실제 메모 API 다섯 경로 그대로다', () => {
+test('설정은 4단계 이상이고 허용 경로에 메모 API 다섯 경로가 그대로 있다', () => {
   assert.ok(config.step >= 4, '4단계 이상');
-  assert.deepEqual(config.allowedRoutes, ['GET /api/notes', 'POST /api/notes', 'GET /api/notes/:id', 'PUT /api/notes/:id', 'DELETE /api/notes/:id']);
+  for (const route of ['GET /api/notes', 'POST /api/notes', 'GET /api/notes/:id', 'PUT /api/notes/:id', 'DELETE /api/notes/:id']) {
+    assert.ok(config.allowedRoutes.includes(route), route);
+  }
   assert.ok(config.originalApiUrl === null || config.originalApiUrl.startsWith('https://'), '원본 API 주소는 비어 있거나 https 주소여야 합니다(5단계부터 필수)');
 });
 
