@@ -14,8 +14,10 @@
     "test:stage4": "node --test test/stage4.test.mjs",
     "test:stage5": "node --test test/stage5.test.mjs",
     "test:auth": "node --test test/auth-api.test.mjs",
+    "test:stage6": "node --test test/stage6.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
+    "decider:show": "node scripts/decider-show.mjs",
     "detect:test": "node scripts/detect-test.mjs",
     "fixture:7": "node scripts/fixture-7.mjs",
     "xdr:run": "node scripts/xdr-run.mjs"

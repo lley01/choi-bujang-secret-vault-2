@@ -2,6 +2,39 @@
 
 이 저장소는 1단계에서 학생 본인이 GitHub 저장소와 Vercel 배포를 만드는 출발점입니다. 포함된 메모 네 건은 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 추가: 6단계 제작 「등록한 기기만 자료실에 들어옵니다」
+
+**작동하는 기능**
+
+- `src/decider.mjs`에 규칙 `device_registered`를 더했습니다(`RULE_IDS = ['starter.deny', 'device_registered']`). 판정 요청은 반 엔진이 신원·기기·경로를 확인한 뒤 넘기는 값이고, 이 규칙은 계약(`docs/DECIDER_REQUEST.md`)의 `request.deviceRegistered`만 봅니다.
+- `deviceRegistered`가 `true`이고 읽기(`method: 'GET'`) 요청이면 `allow`(`reasonCode: 'approved'`, `ruleIds: ['device_registered']`)입니다.
+- 값이 `false`이거나 없거나 `true`가 아니면(문자열 `"true"`, `1` 등) 어떤 요청이든 `deny`(`reasonCode: 'device_not_registered'`)입니다.
+- 등록 기기의 쓰기 요청(POST·PUT·DELETE)은 이 규칙이 허용하지 않고, 시작 틀의 기본 거부(`starter.deny`, `starter_not_ready`)가 그대로 답합니다.
+- 응답은 계약의 다섯 항목만 담고, 계약에 없는 `request.device`·`identity`·`role`·`geo`는 쓰지 않습니다. 앱의 서버 함수와 화면은 바꾸지 않았습니다.
+
+**아직 하지 않은 것**
+
+- `reasonCode`는 운영 등록부에 있어야 합니다. `approved`(계약 예시)와 `device_not_registered`(연습 도구)는 저장소 안의 근거로 고른 값이고, 운영 등록부에서 확인한 값은 아닙니다.
+- `aleph.config.json`의 `step`은 5 그대로입니다(6단계 저장점에서 대조).
+- `npm run fixture:7`(7단계 추가 본인 확인 연습)은 아직 실패하는 것이 정상입니다.
+
+**판정기 확인 순서**
+
+따로 설치할 접속 프로그램은 없습니다. 저장소 폴더에서 `npm install`(또는 `npm ci`)로 의존성만 설치된 상태면 됩니다. 아래는 가상 요청으로 하는 연습이고 심판 판정이 아닙니다. 실제 미등록 기기 공격은 심판이 보냅니다.
+
+1. `npm run decider:test`를 실행합니다. 다음 두 줄이 나오면 연습 확인을 통과한 것입니다.
+   ```
+   통과 · 등록 기기의 정상 요청
+   통과 · 미등록 기기의 가상 요청
+   ```
+   두 번째 줄은 판정이 `deny`이고 이유 코드가 `device_not_registered`일 때만 「통과」입니다. 「확인 필요」가 나오면 그 줄의 규칙을 고칩니다.
+2. `npm run decider:show`를 실행해 같은 가상 요청의 실제 판정 값을 봅니다.
+   ```
+   등록 기기의 정상 요청 (deviceRegistered: true, GET) → allow · approved · device_registered
+   미등록 기기의 가상 요청 (deviceRegistered: false, GET) → deny · device_not_registered · device_registered
+   ```
+3. `npm run test:stage6`을 실행해 값이 없거나 `true`가 아닌 경우, 쓰기 요청, 응답 형식까지 시험합니다.
+
 ## 추가: 5단계 개선 「키는 서버 함수에만, 허용 경로는 배포 파일에」
 
 **작동하는 기능**

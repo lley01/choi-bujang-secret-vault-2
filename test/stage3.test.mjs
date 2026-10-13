@@ -66,7 +66,8 @@ test('3단계 자기 점검은 거부 점검을 실제 응답대로 기록하고
   }
 });
 
-test('src/decider.mjs의 RULE_IDS에는 시작 틀의 기본 거부 규칙 하나만 있고 지어낸 규칙 이름이 없다', async () => {
+test('src/decider.mjs의 RULE_IDS에는 시작 틀의 기본 거부 규칙과 실제로 구현한 규칙만 있다', async () => {
   const { RULE_IDS } = await import('../src/decider.mjs');
-  assert.deepEqual([...RULE_IDS], ['starter.deny']);
+  assert.equal(RULE_IDS[0], 'starter.deny');
+  for (const id of RULE_IDS) assert.ok(['starter.deny', 'device_registered'].includes(id), `구현하지 않은 규칙 이름: ${id}`);
 });
