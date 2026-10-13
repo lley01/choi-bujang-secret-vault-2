@@ -93,3 +93,40 @@ test('npm run decider:show 는 등록 기기 allow, 미등록 기기 deny·devic
   assert.match(output, /^미등록 기기의 가상 요청 \(deviceRegistered: false, GET\) → deny · device_not_registered · device_registered$/mu);
   assert.match(output, /심판 판정이 아닙니다/u);
 });
+
+test('설정은 6단계이고, 실제 빌드(Vercel 흉내)가 만든 /aleph.json도 6단계로 보인다', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { rmSync } = await import('node:fs');
+  const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
+  assert.equal(config.step, 6);
+  const output = new URL('../public/aleph.json', import.meta.url);
+  try {
+    execFileSync(process.execPath, ['scripts/build-public.mjs'], { cwd: new URL('..', import.meta.url), stdio: 'pipe', env: { ...process.env,
+      VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
+      VERCEL_GIT_COMMIT_SHA: 'e'.repeat(40), VERCEL_URL: 'defense-app-mno345.vercel.app' } });
+    const written = JSON.parse(readFileSync(output, 'utf8'));
+    assert.equal(written.step, 6);
+    assert.deepEqual(written.allowedRoutes, config.allowedRoutes);
+    assert.equal(written.originalApiUrl, config.originalApiUrl);
+  } finally {
+    rmSync(output, { force: true });
+  }
+});
+
+test('6단계 자기 점검: 요청은 6건만 보내고, 미등록 기기 점검은 심판이 보내므로 미실행으로 남긴다', async () => {
+  const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
+  const { runAttackChecks } = await import('../src/attack-check.mjs');
+  const original = globalThis.fetch;
+  let sent = 0;
+  globalThis.fetch = async (url) => { sent += 1; return String(url).endsWith('/data.json') ? new Response('not found', { status: 404 })
+    : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401 }); };
+  try {
+    const results = await runAttackChecks({ ...config, publicAppUrl: 'https://student-defense.vercel.app/' });
+    assert.equal(sent, 6);
+    assert.equal(results.at(-1).attackId, 'unregistered_device_notes_read');
+    assert.match(results.at(-1).observed, /^미실행/u);
+    assert.ok(results.length <= 20 && new Set(results.map((item) => item.attackId)).size === results.length);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

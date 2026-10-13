@@ -41,7 +41,7 @@ const vercelEnv = {
   VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
   VERCEL_GIT_COMMIT_SHA: 'c'.repeat(40), VERCEL_URL: 'defense-app-ghi789.vercel.app',
 };
-const appConfig = { ...config, publicAppUrl: 'https://student-defense.vercel.app/' };
+const appConfig = { ...config, step: 5, publicAppUrl: 'https://student-defense.vercel.app/' };
 
 async function withFetch(respond, run) {
   const original = globalThis.fetch;
@@ -52,14 +52,14 @@ async function withFetch(respond, run) {
 const appDenied = (url) => (url.endsWith('/data.json') ? new Response('not found', { status: 404 })
   : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED', message: '로그인이 필요합니다.' }), { status: 401, headers: { 'content-type': 'application/json' } }));
 
-test('설정은 5단계이고, bundle.mjs의 5단계 규칙(originalApiUrl https)을 만족한다', () => {
-  assert.equal(config.step, 5);
+test('설정은 5단계 이상이고, bundle.mjs의 5단계 규칙(originalApiUrl https)을 만족한다', () => {
+  assert.ok(config.step >= 5, '5단계 이상');
   assert.ok(config.originalApiUrl.startsWith('https://'));
 });
 
-test('배포 식별 정보는 5단계를 받아들이고 6단계는 거부한다', () => {
-  assert.equal(deploymentIdentity(vercelEnv, config).step, 5);
-  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 6 }), /배포 식별 정보를 확인할 수 없습니다/u);
+test('배포 식별 정보는 5단계를 받아들이고 7단계는 거부한다', () => {
+  assert.equal(deploymentIdentity(vercelEnv, { ...config, step: 5 }).step, 5);
+  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 7 }), /배포 식별 정보를 확인할 수 없습니다/u);
 });
 
 test('5단계 자기 점검: 우리 앱의 401 JSON만 거부로 적고, 요청 6건만 보내며 토큰이 필요한 점검 3건은 미실행', async () => {
@@ -114,7 +114,7 @@ test('실제 빌드(Vercel 흉내)가 만든 public/aleph.json에 originalApiUrl
       cwd: new URL('..', import.meta.url), stdio: 'pipe', env: { ...process.env, ...vercelEnv },
     });
     const written = JSON.parse(readFileSync(output, 'utf8'));
-    assert.equal(written.step, 5);
+    assert.equal(written.step, config.step);
     assert.equal(written.originalApiUrl, config.originalApiUrl);
     assert.deepEqual(written.allowedRoutes, config.allowedRoutes, '심판이 읽는 /aleph.json에 허용 경로');
     assert.match(written.originalApiUrl, /^https:\/\/[^?#]+$/u);

@@ -20,7 +20,7 @@ const noteList = (data) => (Array.isArray(data) ? data : data?.notes);
 const hasNotes = (data) => Array.isArray(noteList(data)) && noteList(data).length > 0;
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -95,6 +95,11 @@ export async function runAttackChecks(config) {
     // 학습 DB의 Supabase REST를 직접 부르는 길은 로그인 토큰과 학습 DB 주소가 있어야 시험할 수 있습니다. 보내지 않았으므로 미실행으로 남깁니다.
     results.push({ attackId: 'direct_db_rest_access', expected: '로그인 토큰이나 publishable key로 학습 DB의 /rest/v1/notes를 직접 부르면 권한 없음으로 거부되고 메모는 서버 함수로만 다룸',
       observed: '미실행: 로그인 토큰과 학습 DB 주소가 필요해 이 점검에서는 요청을 보내지 않음(DB 권한은 SQL 확인 쿼리로 확인)' });
+  }
+  if (config.step >= 6) {
+    // 미등록 기기 요청은 반 엔진이 확인한 기기 정보로만 만들 수 있어 심판이 보냅니다. 여기서는 보내지 않았으므로 미실행으로 남깁니다.
+    results.push({ attackId: 'unregistered_device_notes_read', expected: '미등록 기기(deviceRegistered: false)의 자료실 요청은 판정기가 deny·device_not_registered로 거부',
+      observed: '미실행: 미등록 기기 요청은 반 엔진의 기기 정보가 필요해 심판이 보냄(이 점검에서는 요청을 보내지 않음)' });
   }
   return results;
 }
