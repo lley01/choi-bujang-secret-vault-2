@@ -7,9 +7,9 @@
 **작동하는 기능**
 
 - `src/decider.mjs`에 규칙 `device_registered`를 더했습니다(`RULE_IDS = ['starter.deny', 'device_registered']`). 판정 요청은 반 엔진이 신원·기기·경로를 확인한 뒤 넘기는 값이고, 이 규칙은 계약(`docs/DECIDER_REQUEST.md`)의 `request.deviceRegistered`만 봅니다.
-- `deviceRegistered`가 `true`이고 읽기(`method: 'GET'`) 요청이면 `allow`(`reasonCode: 'approved'`, `ruleIds: ['device_registered']`)입니다.
+- `deviceRegistered`가 `true`이고 기존 화면이 쓰는 메서드(GET·POST·PUT·DELETE: 화면 열기, 로그인·로그아웃, 메모 읽기·추가·수정·삭제)면 `allow`(`reasonCode: 'approved'`, `ruleIds: ['device_registered']`)입니다. 이 판정 뒤에도 서버 함수의 로그인 검사와 소유자 검사는 그대로 거칩니다. (처음에는 읽기만 허용해서 등록 기기에서도 로그인과 메모 저장이 막혔기 때문에 고쳤습니다.)
 - 값이 `false`이거나 없거나 `true`가 아니면(문자열 `"true"`, `1` 등) 어떤 요청이든 `deny`(`reasonCode: 'device_not_registered'`)입니다.
-- 등록 기기의 쓰기 요청(POST·PUT·DELETE)은 이 규칙이 허용하지 않고, 시작 틀의 기본 거부(`starter.deny`, `starter_not_ready`)가 그대로 답합니다.
+- 화면이 쓰지 않는 메서드(PATCH·HEAD·OPTIONS 등)는 이 규칙이 허용하지 않고, 시작 틀의 기본 거부(`starter.deny`, `starter_not_ready`)가 그대로 답합니다.
 - 응답은 계약의 다섯 항목만 담고, 계약에 없는 `request.device`·`identity`·`role`·`geo`는 쓰지 않습니다. 앱의 서버 함수와 화면은 바꾸지 않았습니다.
 
 **아직 하지 않은 것**
@@ -33,7 +33,7 @@
    등록 기기의 정상 요청 (deviceRegistered: true, GET) → allow · approved · device_registered
    미등록 기기의 가상 요청 (deviceRegistered: false, GET) → deny · device_not_registered · device_registered
    ```
-3. `npm run test:stage6`을 실행해 값이 없거나 `true`가 아닌 경우, 쓰기 요청, 응답 형식까지 시험합니다.
+3. `npm run test:stage6`을 실행해 값이 없거나 `true`가 아닌 경우, 기존 화면이 쓰는 모든 요청(등록 기기 허용·미등록 기기 거부), 응답 형식까지 시험합니다.
 
 ## 추가: 5단계 개선 「키는 서버 함수에만, 허용 경로는 배포 파일에」
 

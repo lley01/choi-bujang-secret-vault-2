@@ -47,12 +47,29 @@ test('미등록 기기는 쓰기 요청도 device_not_registered로 거부한다
   }
 });
 
-test('등록 기기라도 읽기가 아닌 요청은 이 규칙이 허용하지 않고, 기존 기본 거부(starter.deny)가 그대로 답한다', async () => {
-  for (const method of ['POST', 'PUT', 'DELETE']) {
-    const request = { ...base(), method, route: `${method} /notes/:id` };
+test('등록 기기에서 기존 화면이 쓰는 모든 요청(화면 열기·로그인·로그아웃·메모 읽기·추가·수정·삭제)이 열린다', async () => {
+  const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
+  const page = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const screenRoutes = [...page.matchAll(/(?:authRequest|callApi)\('([A-Z]+)', [`']([^`']+)[`']/gu)]
+    .map(([, method, path]) => `${method} ${path.replace(/\$\{[^}]+\}/u, ':id')}`);
+  assert.ok(screenRoutes.length >= 7, '화면 코드에서 요청을 찾지 못했습니다');
+  for (const route of new Set(['GET /', ...screenRoutes, ...config.allowedRoutes])) {
+    const [method, path] = route.split(' ');
+    const request = { ...base(), method, path, route };
     const response = await decide(request);
     assertShape(request, response);
-    assert.deepEqual([response.decision, response.reasonCode, response.ruleIds], ['deny', 'starter_not_ready', ['starter.deny']], method);
+    assert.deepEqual([response.decision, response.reasonCode, response.ruleIds], ['allow', 'approved', ['device_registered']], route);
+    const denied = await decide({ ...request, requestId: crypto.randomUUID(), deviceRegistered: false });
+    assert.deepEqual([denied.decision, denied.reasonCode], ['deny', 'device_not_registered'], `미등록 ${route}`);
+  }
+});
+
+test('등록 기기라도 화면이 쓰지 않는 메서드는 이 규칙이 허용하지 않고, 기존 기본 거부(starter.deny)가 그대로 답한다', async () => {
+  for (const method of ['PATCH', 'HEAD', 'OPTIONS', 'TRACE', 'get', '', undefined]) {
+    const request = { ...base(), method };
+    const response = await decide(request);
+    assertShape(request, response);
+    assert.deepEqual([response.decision, response.reasonCode, response.ruleIds], ['deny', 'starter_not_ready', ['starter.deny']], String(method));
   }
 });
 
