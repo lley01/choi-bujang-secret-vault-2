@@ -21,7 +21,7 @@ const noteList = (data) => (Array.isArray(data) ? data : data?.notes);
 const hasNotes = (data) => Array.isArray(noteList(data)) && noteList(data).length > 0;
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -108,6 +108,11 @@ export async function runAttackChecks(config) {
     // 그래서 실제 자료 차단과 새 로그인 뒤 재판정은 보내지 않고 미실행으로 남깁니다. 토큰은 만들거나 기록하지 않습니다.
     results.push({ attackId: 'step_up_reauth_notes_read', expected: '복합 이상 접속은 다시 로그인 전 자료를 막고(step_up), 같은 로그인으로 다시 로그인한 뒤의 새 요청만 다시 판정해 허용',
       observed: '미실행: 제공 엔진의 다시 로그인 시각 확인 계약이 아직 없어 실제 자료 차단·재판정을 실측하지 않음(가상 사건 규칙만 npm run test:stage7로 시험)' });
+  }
+  if (config.step >= 9) {
+    // 9단계: 탐지는 회수 제안(propose_revocation)만 만듭니다. 실제 기기 권한 회수와 걸린 시간은 심판이 확인하므로 여기서는 요청을 보내지 않습니다.
+    results.push({ attackId: 'doppelganger_device_revocation', expected: '다른 네트워크 + 10분 안 다량 조회가 한 기기에서 나오면 그 기기 하나의 회수를 제안하고, 회수 뒤 그 기기의 자료 요청은 거부',
+      observed: '미실행: 실제 회수와 걸린 시간은 심판이 확인함(탐지 제안만 npm run test:stage9로 시험, 이 점검에서는 요청을 보내지 않음)' });
   }
   return results;
 }

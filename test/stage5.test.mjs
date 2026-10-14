@@ -57,9 +57,9 @@ test('설정은 5단계 이상이고, bundle.mjs의 5단계 규칙(originalApiUr
   assert.ok(config.originalApiUrl.startsWith('https://'));
 });
 
-test('배포 식별 정보는 5단계를 받아들이고 9단계는 거부한다', () => {
+test('배포 식별 정보는 5단계를 받아들이고 10단계는 거부한다', () => {
   assert.equal(deploymentIdentity(vercelEnv, { ...config, step: 5 }).step, 5);
-  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 9 }), /배포 식별 정보를 확인할 수 없습니다/u);
+  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 10 }), /배포 식별 정보를 확인할 수 없습니다/u);
 });
 
 test('5단계 자기 점검: 우리 앱의 401 JSON만 거부로 적고, 요청 6건만 보내며 토큰이 필요한 점검 3건은 미실행', async () => {

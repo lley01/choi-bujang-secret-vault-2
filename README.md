@@ -20,6 +20,67 @@
 
 **다시 확인하는 방법**: `npm run test:stage7` (가상 요청 시험이며 심판 판정이 아닙니다)
 
+## 추가: 9단계 제작 3 「기기 한 개의 회수 제안」
+
+**작동하는 기능**
+
+- 탐지 결과(`src/detect.mjs`의 `detect`)에 회수 제안을 넣었습니다. 판정기의 허용/거부 응답(5항목)은 그대로입니다.
+  ```
+  { action: 'propose_revocation', reasonCode: 'unusual_network_burst', subject: '가명', deviceId: '16자리 기기 ID' }
+  ```
+- 대상은 **확인된 가상 기기 한 개**입니다. 의심 구간(다른 네트워크 조회가 10분 안 120건 초과)의 조회가 모두 같은 기기 ID(엔진이 넘긴 16자리 `deviceId`)에서 왔을 때만 제안합니다.
+- 기기를 모르는 사건이 섞였거나, 기기가 둘 이상이거나, 기기 ID 형식이 틀리면 어느 기기인지 확정할 수 없으므로 제안하지 않고 `{ action: 'observe' }`입니다. 대상이 여럿이면 가장 먼저 탐지된 하나만 제안합니다.
+- 탐지는 제안만 돌려줍니다. 회수 API를 만들거나 부르지 않고, 기기 권한·세션·DB를 바꾸지 않으며, 로그도 남기지 않습니다.
+- 자기 점검(`npm run bundle`)에 `doppelganger_device_revocation`을 **미실행**으로 남깁니다. 실제 회수와 걸린 시간은 심판이 확인합니다.
+
+**아직 하지 않은 것**
+
+- `docs/DETECT_EVENTS.md`의 연습 계약은 다량 조회만으로 `{ action, reasonCode: 'burst_read', subject }`를 기대합니다. 이번 제안은 네트워크·기기 조건과 `deviceId` 칸이 더 있어서, 네트워크·기기 칸이 없는 `npm run detect:test`의 121건·200건 두 줄은 「확인 필요」로 남습니다.
+- `unusual_network_burst` 이유 코드는 운영 등록부에서 확인한 값이 아닙니다.
+
+**다시 확인하는 방법**: `npm run test:stage9` (가상 사건 연습이며 실제 회수나 심판 판정이 아닙니다)
+
+## 추가: 9단계 제작 2 「의심 표시 규칙」(`unusual_network_burst`)
+
+**작동하는 기능**
+
+- `src/detect.mjs`의 `findSuspicious(events)`가 **평소와 다른 네트워크**와 **갑작스러운 다량 조회**가 함께 나타날 때만 의심으로 표시합니다. 결과는 `[{ subject, reasonCode: 'unusual_network_burst' }]`(가명과 이유 코드만)입니다.
+- 기준: 같은 가명 사용자가 `network: 'unusual'`에서 보낸 조회(GET)가 어느 10분 구간에서든 120건을 넘을 때. 120건·10분은 `docs/DETECT_EVENTS.md`의 다량 조회 기준을 그대로 썼고, 정확히 120건은 표시하지 않습니다.
+- 둘 중 하나만 보이면(평소 네트워크의 다량 조회, 다른 네트워크의 적은 조회) 표시하지 않습니다. 다른 사용자의 사건은 합치지 않습니다.
+- **지역은 읽지 않습니다.** 그래서 지역 하나만으로 확정하는 일이 없습니다.
+- 네트워크는 사건의 `signals.network`를 `signals.source`가 `judge_fixture`일 때만 읽습니다(판정 계약과 같은 모양). 출처가 없거나 불명확하거나 `unknown`이면 `null`로 두고 세지 않습니다. 사건 바깥의 `network`나 헤더는 읽지 않습니다.
+- 정상 사건과 `detect` 결과는 그대로입니다(`detect`는 여전히 `{ action: 'observe' }`).
+
+**아직 하지 않은 것**
+
+- 의심 표시를 권한 회수 제안(`propose_revocation`)으로 이어 붙이지 않았습니다. 지금 연습 사건(`npm run detect:test`)에는 네트워크 칸이 없고, 계약은 다량 조회만으로 회수를 제안하라고 하므로 121건·200건 두 줄은 아직 「확인 필요」입니다.
+
+**다시 확인하는 방법**: `npm run test:stage9` (가상 사건 연습이며 실제 회수나 심판 판정이 아닙니다)
+
+## 추가: 9단계 시작 「step 9와 탐지 입력 정리」
+
+**작동하는 기능**
+
+- `aleph.config.json`의 `step`을 9로 올렸고, 빌드·배포 식별·자기 점검이 1~9단계를 받습니다(10단계 이상은 거부). 배포된 `/aleph.json`도 `"step": 9`입니다.
+- `src/detect.mjs`의 `readDetectionEvents(events)`가 가상 사건(`docs/DETECT_EVENTS.md`)에서 아래 값만 읽고 나머지는 버립니다. 결과는 시각 순이고, 원본은 바꾸지 않습니다.
+
+| 읽는 값 | 출처 | 없거나 틀리면 |
+|---|---|---|
+| 시각 `at` | `at` (UTC ISO) | 사건을 뺌 |
+| 가명 사용자 `subject` | `identity.sub` (영문·숫자·`_.:-`) | 사건을 뺌(이메일·공백·한글처럼 실명·연락처로 보이는 값 포함) |
+| 기기 `device` | `deviceId` (16자리 소문자 16진수) | `null` |
+| 요청 종류 `method` | `method` (GET·POST·PUT·PATCH·DELETE) | `null` |
+| 판정 `decision` | `decision` (allow·deny·step_up) | `null` |
+
+- 메모 제목·본문, 토큰, 실명, 요청 본문·헤더, `identity`의 다른 값은 읽지도 저장하지도 출력하지도 않습니다. 탐지 파일은 로그를 남기지 않습니다.
+- 지금 연습 사건에는 기기와 판정이 없어서 둘 다 `null`입니다. 정상값으로 채우지 않습니다.
+
+**아직 하지 않은 것**
+
+- 탐지 규칙(회수 제안)은 아직 없습니다. `detect`는 여전히 `{ action: 'observe' }`만 돌려주므로 `npm run detect:test`의 121건·200건 두 줄은 아직 「확인 필요」가 정상입니다.
+
+**다시 확인하는 방법**: `npm run test:stage9` (가상 사건 시험이며 실제 접속 회수나 심판 판정이 아닙니다)
+
 ## 추가: 8단계 제작 3 「자료 API가 권한을 다시 대조합니다」
 
 **작동하는 기능**
