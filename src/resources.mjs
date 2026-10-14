@@ -13,6 +13,8 @@ export const RESOURCES = Object.freeze({
 const ROUTES = Object.freeze([
   [/^\/api\/notes(?:\/[^/?#]+)?\/?$/u, RESOURCES.NOTE],
   [/^\/api\/notices(?:\/[^/?#]+)?\/?$/u, RESOURCES.NOTICE],
+  // 10단계: 메모 한 건 복원(POST /api/restore/:id)도 내 자료실 메모 자원입니다.
+  [/^\/api\/restore\/[^/?#]+\/?$/u, RESOURCES.NOTE],
 ]);
 
 // 서버가 받은 요청 경로로 자원 ID를 찾습니다. 쿼리(?resource=…)는 떼고 보며, 어느 구역에도 맞지 않으면 null입니다.

@@ -18,10 +18,13 @@
     "test:stage7": "node --test test/stage7.test.mjs",
     "test:stage8": "node --test test/stage8.test.mjs",
     "test:stage9": "node --test test/stage9.test.mjs",
+    "test:stage10": "node --test test/stage10.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "decider:show": "node scripts/decider-show.mjs",
     "detect:test": "node scripts/detect-test.mjs",
+    "policy:diff": "node scripts/policy-diff.mjs",
+    "policy:restore": "node scripts/policy-restore.mjs",
     "fixture:7": "node scripts/fixture-7.mjs",
     "xdr:run": "node scripts/xdr-run.mjs"
   },

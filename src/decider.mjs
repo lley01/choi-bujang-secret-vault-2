@@ -27,6 +27,7 @@ function deviceRegistered(request) {
 // | 메모 | notes | GET·PUT·DELETE /notes/:id (자료 ID 하나) | ID 없는 목록·추가(/notes), 그 밖의 메서드, 더 깊은 경로 |
 // | 반 공지 | notices | GET /notices, GET /notices/:id | 쓰기(POST·PUT·PATCH·DELETE)는 누구에게나 거부 |
 // | 강사 자료 | materials | 없음 | 모든 요청 |
+// | 메모 복원 | restore | POST /restore/:id (자료 ID 하나, 10단계) | 그 밖의 메서드·모양 |
 //
 // - 경로 모양은 계약 예시(route: 'GET /notes/:id', path: '/notes/demo')를 따르고, aleph.config.json과 같은 '/api' 접두 모양도 받습니다.
 //   route는 'METHOD 모양'과 글자 그대로 같아야 하고, path는 그 모양에 ID 한 칸을 넣은 것이어야 하며, service도 구역과 같아야 합니다.
@@ -42,6 +43,8 @@ const ZONES = Object.freeze([
   { name: 'notes', allow: [['GET', '/notes/:id'], ['PUT', '/notes/:id'], ['DELETE', '/notes/:id']] },
   { name: 'notices', allow: [['GET', '/notices'], ['GET', '/notices/:id']], readOnly: true },
   { name: 'materials', allow: [], closed: true },
+  // 10단계: 비공개 사본에서 메모 한 건 복원. ID·소유자·내용 해시 대조는 서버(src/restore-service.mjs)와 DB 함수가 합니다.
+  { name: 'restore', allow: [['POST', '/restore/:id']] },
 ]);
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 

@@ -114,5 +114,10 @@ export async function runAttackChecks(config) {
     results.push({ attackId: 'doppelganger_device_revocation', expected: '다른 네트워크 + 10분 안 다량 조회가 한 기기에서 나오면 그 기기 하나의 회수를 제안하고, 회수 뒤 그 기기의 자료 요청은 거부',
       observed: '미실행: 실제 회수와 걸린 시간은 심판이 확인함(탐지 제안만 npm run test:stage9로 시험, 이 점검에서는 요청을 보내지 않음)' });
   }
+  if (config.step >= 9 && config.restoreRoute === 'POST /api/restore/:id') {
+    // 10단계: 복원은 로그인 토큰과 사본의 내용 해시가 필요해 이 점검에서는 보내지 않습니다(시험 계정 B로 직접 확인, README 참고).
+    results.push({ attackId: 'restore_other_owner_note', expected: '다른 사람(A)이 B의 메모 사본 복원을 요청하면 404로 거부하고 B의 메모·다른 메모·감사 기록은 그대로',
+      observed: '미실행: 로그인 토큰과 사본 해시가 필요해 이 점검에서는 요청을 보내지 않음(가짜 DB로 npm run test:stage10 시험)' });
+  }
   return results;
 }

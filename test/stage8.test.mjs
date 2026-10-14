@@ -91,7 +91,7 @@ test('기존 자료와 API 주소는 그대로다: 응답 본문 모양·메모 
   assert.deepEqual(out.body, [{ id, title: '가상 메모', body: '실습용 가상 본문' }], '응답 본문에는 자원 ID를 넣지 않음');
   assert.deepEqual(store.rows, [row]);
   const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
-  assert.deepEqual(config.allowedRoutes, ['GET /api/notes/:id', 'PUT /api/notes/:id', 'DELETE /api/notes/:id', 'GET /api/notices', 'GET /api/notices/:id']);
+  assert.deepEqual(config.allowedRoutes, ['GET /api/notes/:id', 'PUT /api/notes/:id', 'DELETE /api/notes/:id', 'GET /api/notices', 'GET /api/notices/:id', 'POST /api/restore/:id']);
   for (const route of config.allowedRoutes.filter((item) => item.includes('/api/notes'))) {
     assert.equal(resourceOf(route.split(' ')[1].replace(':id', id)), 'vault.note', route);
   }
@@ -179,7 +179,7 @@ test('이전 규칙 유지: 미등록 기기는 어느 구역이든 먼저 거�
 test('allowedRoutes에는 판정기가 허용하는 경로만 메서드를 붙여 적었다', async () => {
   const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
   for (const route of config.allowedRoutes) {
-    assert.match(route, /^(GET|PUT|DELETE) \/api\/[a-z]+(\/:id)?$/u, route);
+    assert.match(route, /^(GET|PUT|DELETE|POST) \/api\/[a-z]+(\/:id)?$/u, route);
     const [method, shape] = route.split(' ');
     const service = shape.split('/')[2];
     assert.equal(await verdict(req(service, method, shape.replace(':id', 'demo'), route)), OK, route);
