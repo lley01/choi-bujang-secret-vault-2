@@ -2,7 +2,7 @@
 // 6단계부터 규칙을 하나씩 추가합니다. 어느 규칙에도 해당하지 않으면 시작 틀의 기본 응답으로 거부합니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
 // 요청 항목은 docs/DECIDER_REQUEST.md 의 계약(aleph.decision.v1)에 있는 값만 씁니다.
-export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered']);
+export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required']);
 
 const respond = (request, decision, reasonCode, ruleId) => ({
   schema: 'aleph.decision.v1',
@@ -24,7 +24,7 @@ function deviceRegistered(request) {
   return null;
 }
 
-// 7단계 입력 검사: 엔진이 넘긴 접속 정보(signals·recentEvents)를 출처별로 읽습니다. 판정 규칙은 아직 이 값을 쓰지 않습니다.
+// 7단계 입력 검사: 엔진이 넘긴 접속 정보(signals·recentEvents)를 출처별로 읽습니다. 아래 step_up_required 규칙이 이 값만 씁니다.
 // - 계약의 18개 이름 밖의 항목(예: headers, x-forwarded-for, geo)이 섞인 요청은 엔진이 만든 요청이 아니므로 출처 'unclear'로 봅니다.
 //   그 항목의 값은 어떤 경우에도 읽지 않습니다. 클라이언트가 보낸 헤더가 신뢰하는 접속 정보로 올라가지 않게 하려는 것입니다.
 // - signals.source 'judge_fixture': 심판의 가상 접속 정보입니다(virtual: true). 실제 위치 증거가 아닙니다.
@@ -70,7 +70,42 @@ export function readAccessContext(request) {
   return Object.freeze(context);
 }
 
+// 7단계 step_up_required: 평소와 다른 시각 + 처음 보는 네트워크 + 갑작스러운 대량 읽기가 "모두" 보일 때만 추가 본인 확인(step_up)을 요청합니다.
+// - 사유는 reasonCode 'step_up_required'와 ruleIds ['step_up_required']로 응답에 남습니다(응답 다섯 항목은 그대로).
+// - 지역(region)은 조건에 넣지 않습니다. 지역 하나만으로는 거부도 추가 확인도 하지 않고, 영구 차단(deny)은 이 규칙에 없습니다.
+// - 값이 없거나 출처가 불명확하면(readAccessContext가 null) 그 조건은 "이상"으로도 "정상"으로도 세지 않으므로 이 규칙이 켜지지 않습니다.
+// - 이미 추가 확인을 마친 경우(stepUp.verified가 true이고 authAgeSeconds가 계약 범위 0~900초)에만 다시 묻지 않습니다.
+//   이 값은 복합 이상이 보였을 때만 확인하며, 이 값만으로 다른 규칙을 건너뛰지 않습니다.
+// - 기준값은 연습용 고정값입니다. 사용자별 "평소" 이력은 계약에 없어 쓰지 않습니다.
+const UNUSUAL_HOURS = new Set([0, 1, 2, 3, 4, 5]);
+const UNFAMILIAR_NETWORKS = new Set(['unusual']);
+const BURST_WINDOW_SECONDS = 300;
+const BURST_MIN_COUNT = 10;
+
+function burstRead(events) {
+  if (events === null) return false;
+  const recent = events.filter((event) => event.ageSeconds <= BURST_WINDOW_SECONDS);
+  return recent.reduce((total, event) => total + event.count, 0) >= BURST_MIN_COUNT;
+}
+
+function recentlyVerified(stepUp) {
+  return hasExactly(stepUp, ['authAgeSeconds', 'verified']) && stepUp.verified === true
+    && Number.isInteger(stepUp.authAgeSeconds) && stepUp.authAgeSeconds >= 0 && stepUp.authAgeSeconds <= 900;
+}
+
+function stepUpRequired(request) {
+  const context = readAccessContext(request);
+  const unusual = context.hour !== null && UNUSUAL_HOURS.has(context.hour)
+    && context.network !== null && UNFAMILIAR_NETWORKS.has(context.network)
+    && burstRead(context.recentEvents);
+  if (!unusual || recentlyVerified(request.stepUp)) return null;
+  return respond(request, 'step_up', 'step_up_required', 'step_up_required');
+}
+
+// 순서: 기기 규칙이 먼저입니다(미등록이면 거부, 화면이 쓰지 않는 메서드면 기본 거부).
+// 기기 규칙이 허용할 요청에만 step_up_required를 확인합니다.
 export async function decide(request) {
-  return deviceRegistered(request)
-    ?? respond(request, 'deny', 'starter_not_ready', RULE_IDS[0]);
+  const device = deviceRegistered(request);
+  if (device?.decision === 'allow') return stepUpRequired(request) ?? device;
+  return device ?? respond(request, 'deny', 'starter_not_ready', RULE_IDS[0]);
 }

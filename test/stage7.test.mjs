@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { decide, readAccessContext } from '../src/decider.mjs';
+import { RULE_IDS, decide, readAccessContext } from '../src/decider.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
 
 // 7단계 입력 검사(readAccessContext). 요청은 계약 모양의 가상 요청입니다. 심판 판정이 아닙니다.
@@ -104,8 +104,8 @@ test('요청이 객체가 아니어도 오류 없이 모두 모름으로 답한�
   }
 });
 
-test('입력 검사만 더했고 판정 결과는 6단계와 같다', async () => {
-  const cases = [[normal(), 'allow', 'approved'], [suspicious(), 'allow', 'approved'],
+test('입력 검사는 기기 규칙의 판정을 바꾸지 않는다(복합 이상은 아래 step_up_required 시험)', async () => {
+  const cases = [[normal(), 'allow', 'approved'],
     [{ ...normal(), deviceRegistered: false }, 'deny', 'device_not_registered'],
     [{ ...normal(), method: 'PATCH' }, 'deny', 'starter_not_ready']];
   for (const [request, decision, reasonCode] of cases) {
@@ -113,4 +113,71 @@ test('입력 검사만 더했고 판정 결과는 6단계와 같다', async () =
     assert.equal(response.decision, decision);
     assert.equal(response.reasonCode, reasonCode);
   }
+});
+
+// 7단계 step_up_required 규칙: 평소와 다른 시각 + 처음 보는 네트워크 + 갑작스러운 대량 읽기가 모두 보일 때만 추가 확인.
+const judged = async (request) => { const r = await decide(request); return [r.decision, r.reasonCode, r.ruleIds.join(',')]; };
+const STEP_UP = ['step_up', 'step_up_required', 'step_up_required'];
+const ALLOW = ['allow', 'approved', 'device_registered'];
+const signalsOf = (overrides) => ({ source: 'judge_fixture', region: 'foreign', network: 'unusual', hour: 3, ...overrides });
+const BURST = [{ kind: 'risk_signal', ageSeconds: 60, count: 20 }];
+
+test('RULE_IDS에 step_up_required를 더했고 기존 규칙은 그대로다', () => {
+  assert.deepEqual([...RULE_IDS], ['starter.deny', 'device_registered', 'step_up_required']);
+});
+
+test('정해진 복합 사건은 추가 확인(step_up), 정상 사건은 허용으로 나오고 사유가 응답에 남는다', async () => {
+  const request = suspicious();
+  const response = await decide(request);
+  assert.deepEqual(response, { schema: 'aleph.decision.v1', requestId: request.requestId, decision: 'step_up', reasonCode: 'step_up_required', ruleIds: ['step_up_required'] });
+  assert.deepEqual(await judged(normal()), ALLOW);
+});
+
+test('지역 하나만으로는 거부하지도 추가 확인하지도 않는다(영구 차단 없음)', async () => {
+  for (const region of ['foreign', 'unknown', 'local']) {
+    assert.deepEqual(await judged({ ...normal(), signals: signalsOf({ region, network: 'usual', hour: 14 }), recentEvents: [] }), ALLOW, region);
+  }
+  assert.deepEqual(await judged({ ...suspicious(), signals: signalsOf({ region: 'local' }) }), STEP_UP, '지역이 평소여도 복합 이상이면 추가 확인');
+  for (let i = 0; i < 3; i += 1) assert.notEqual((await decide(suspicious())).decision, 'deny', '같은 지역이 반복돼도 거부로 바뀌지 않음');
+});
+
+test('조건 하나나 둘만 보이면 허용한다', async () => {
+  const cases = [
+    [signalsOf({ network: 'usual' }), BURST], [signalsOf({ hour: 14 }), BURST], [signalsOf({}), []],
+    [signalsOf({ network: 'usual', hour: 14 }), BURST], [signalsOf({ hour: 14 }), []],
+    [signalsOf({}), [{ kind: 'risk_signal', ageSeconds: 60, count: 9 }]],
+    [signalsOf({}), [{ kind: 'risk_signal', ageSeconds: 301, count: 50 }]],
+  ];
+  for (const [signals, recentEvents] of cases) {
+    assert.deepEqual(await judged({ ...normal(), signals, recentEvents }), ALLOW, JSON.stringify([signals, recentEvents]));
+  }
+  assert.deepEqual(await judged({ ...normal(), signals: signalsOf({}), recentEvents: [{ kind: 'read', ageSeconds: 10, count: 4 }, { kind: 'read', ageSeconds: 200, count: 6 }] }), STEP_UP, '5분 안 합계 10건');
+});
+
+test('값이 없거나 출처가 불명확하면 정상값으로 채우지도, 이상으로 세지도 않는다', async () => {
+  for (const signals of [signalsOf({ source: 'none' }), signalsOf({ source: 'client' }), signalsOf({ hour: null }), signalsOf({ network: 'unknown' })]) {
+    assert.deepEqual(await judged({ ...suspicious(), signals }), ALLOW, JSON.stringify(signals));
+  }
+  assert.deepEqual(await judged({ ...suspicious(), recentEvents: 'many' }), ALLOW);
+});
+
+test('추가 확인을 마친 경우만 허용하고, stepUp 값이 틀리면 다시 묻는다', async () => {
+  assert.deepEqual(await judged({ ...suspicious(), stepUp: { verified: true, authAgeSeconds: 60 } }), ALLOW);
+  for (const stepUp of [{ verified: false, authAgeSeconds: null }, { verified: true, authAgeSeconds: 901 }, { verified: true, authAgeSeconds: null },
+    { verified: 'true', authAgeSeconds: 60 }, { verified: true, authAgeSeconds: 60, extra: 1 }, null, undefined]) {
+    assert.deepEqual(await judged({ ...suspicious(), stepUp }), STEP_UP, JSON.stringify(stepUp));
+  }
+  assert.deepEqual(await judged({ ...normal(), stepUp: { verified: true, authAgeSeconds: 60 } }).then(([d]) => d), 'allow');
+});
+
+test('기존 기기 규칙이 먼저다: 미등록 기기는 복합 이상이어도 거부, 화면 밖 메서드는 기본 거부', async () => {
+  assert.deepEqual(await judged({ ...suspicious(), deviceRegistered: false }), ['deny', 'device_not_registered', 'device_registered']);
+  assert.deepEqual(await judged({ ...suspicious(), method: 'PATCH' }), ['deny', 'starter_not_ready', 'starter.deny']);
+  for (const method of ['POST', 'PUT', 'DELETE']) assert.deepEqual(await judged({ ...suspicious(), method }), STEP_UP, method);
+});
+
+test('npm run fixture:7 연습이 정상 allow, 복합 이상 step_up으로 통과한다(심판 판정 아님)', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const output = execFileSync(process.execPath, ['scripts/fixture-7.mjs'], { cwd: new URL('..', import.meta.url), encoding: 'utf8' });
+  assert.equal(output, '정상 사건: allow\n복합 이상 사건: step_up\n');
 });

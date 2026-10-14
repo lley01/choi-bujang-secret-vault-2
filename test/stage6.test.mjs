@@ -16,8 +16,8 @@ function assertShape(request, response) {
   assert.ok(response.ruleIds.length > 0 && response.ruleIds.every((id) => RULE_IDS.includes(id)));
 }
 
-test('RULE_IDS에 device_registered를 더했고 시작 틀의 starter.deny는 그대로 맨 앞에 있다', () => {
-  assert.deepEqual([...RULE_IDS], ['starter.deny', 'device_registered']);
+test('RULE_IDS에 device_registered를 더했고 시작 틀의 starter.deny는 그대로 맨 앞에 있다(7단계에서 step_up_required 추가)', () => {
+  assert.deepEqual([...RULE_IDS], ['starter.deny', 'device_registered', 'step_up_required']);
   assert.ok(Object.isFrozen(RULE_IDS));
 });
 
@@ -80,9 +80,9 @@ test('계약에 없는 값(device·identity·role·geo)은 판정에 쓰지 않�
   assert.doesNotMatch(source, /request\.(?:device\b|identity|role|geo)/u);
 });
 
-test('로컬 연습(npm run decider:test)의 두 확인이 모두 통과한다(심판 판정 아님)', async () => {
+test('로컬 연습(npm run decider:test)의 기기 확인 두 건이 통과한다(심판 판정 아님, 7단계 확인 두 건은 stage7 시험)', async () => {
   const results = await checkDecider({ decide, ruleIds: [...RULE_IDS] });
-  assert.deepEqual(results.map((item) => item.name), ['등록 기기의 정상 요청', '미등록 기기의 가상 요청']);
+  assert.deepEqual(results.map((item) => item.name).slice(0, 2), ['등록 기기의 정상 요청', '미등록 기기의 가상 요청']);
   for (const item of results) assert.equal(item.passed, true, item.name);
 });
 

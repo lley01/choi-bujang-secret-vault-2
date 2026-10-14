@@ -18,11 +18,36 @@
 - 행동(`recentEvents`)은 엔진이 넘긴 배열(최대 12건, 각 `{kind, ageSeconds, count}`)일 때만 읽습니다. `[]`은 "사건 없음"이고, 값이 없거나 형식이 틀리면 `null`(모름)입니다.
 - 모르는 값은 `missing`에 적고, `local`·`usual`·현재 시각 같은 정상값으로 채우지 않습니다. 따라서 위조한 클라이언트 헤더가 신뢰하는 접속 정보로 올라가지 않습니다.
 
+**다시 확인하는 방법**: `npm run test:stage7` (가상 요청 시험이며 심판 판정이 아닙니다)
+
+## 추가: 7단계 제작 2 「평소와 다른 접속은 다시 확인합니다」(규칙 `step_up_required`)
+
+**작동하는 기능**
+
+- `RULE_IDS = ['starter.deny', 'device_registered', 'step_up_required']`. 기존 기기 규칙이 먼저이고(미등록 → `deny`·`device_not_registered`, 화면 밖 메서드 → 기본 거부), 기기 규칙이 허용할 요청에만 이 규칙을 봅니다.
+- 아래 세 조건이 **모두** 보이면 `step_up`(추가 본인 확인)이고, 사유는 응답의 `reasonCode: 'step_up_required'`, `ruleIds: ['step_up_required']`로 남습니다.
+
+| 조건 | 기준(연습용 고정값) |
+|---|---|
+| 평소와 다른 시각 | `signals.hour`가 0~5시 |
+| 처음 보는 네트워크 | `signals.network`가 `unusual` |
+| 갑작스러운 대량 읽기 | `recentEvents` 중 최근 300초 안의 `count` 합이 10 이상 |
+
+- 하나나 둘만 보이면 허용합니다. **지역(`region`)은 조건에 넣지 않아** 지역 하나만으로는 거부도 추가 확인도 하지 않으며, 이 규칙에는 영구 차단(`deny`)이 없습니다.
+- 값이 없거나 출처가 불명확하면(`source: 'none'`·`unclear`, `unknown`, 형식 오류) 이상으로도 정상으로도 세지 않아 이 규칙이 켜지지 않습니다.
+- 추가 확인을 마친 경우(`stepUp.verified: true`, `authAgeSeconds` 0~900초)만 같은 복합 이상을 다시 묻지 않습니다.
+
 **아직 하지 않은 것**
 
-- 이 값을 쓰는 추가 본인 확인(`step_up`) 규칙은 아직 없습니다. 그래서 `npm run fixture:7`은 아직 실패하는 것이 정상입니다.
+- "평소"를 사용자별 이력으로 판단하지 않고 고정 기준값을 씁니다(이력은 계약에 없음). 실제 경로는 지금 `source: 'none'`이라 이 규칙이 켜지지 않고, 심판의 가상 사건에서만 켜집니다.
+- `step_up_required` 이유 코드는 연습 도구(`decider:test`)의 기대값을 근거로 골랐고, 운영 등록부에서 확인한 값은 아닙니다.
 
-**다시 확인하는 방법**: `npm run test:stage7` (가상 요청 시험이며 심판 판정이 아닙니다)
+**다시 확인하는 방법** (모두 가상 요청 연습이며 심판 판정이 아닙니다)
+
+- `npm run fixture:7` → `정상 사건: allow`, `복합 이상 사건: step_up`
+- `npm run decider:test` → 네 줄 모두 `통과`
+- `npm run decider:show` → 복합 이상 접속 `step_up · step_up_required · step_up_required`, 다시 확인한 복합 이상 접속 `allow`
+- `npm run test:stage7`
 
 ## 추가: 6단계 제작 「등록한 기기만 자료실에 들어옵니다」
 
