@@ -26,8 +26,10 @@
 
 - 탐지 결과(`src/detect.mjs`의 `detect`)에 회수 제안을 넣었습니다. 판정기의 허용/거부 응답(5항목)은 그대로입니다.
   ```
-  { action: 'propose_revocation', reasonCode: 'unusual_network_burst', subject: '가명', deviceId: '16자리 기기 ID' }
+  { action: 'propose_revocation', reasonCode: 'unusual_network_burst', deviceId: '16자리 기기 ID' }
   ```
+- (고침) 결과는 대상 기기 한 개와 이유 코드로 한정합니다(가명 `subject`는 넣지 않음).
+- (고침) **복합 의심 사건**(판정 요청 모양: `deviceId`·`signals`·`recentEvents`)도 처리합니다. 처음에는 탐지 사건 모양(`identity.sub`)만 봐서 복합 의심 사건에 제안이 없었습니다. 등록 기기(`deviceRegistered: true`, 16자리 `deviceId`)에서 다른 네트워크(`signals.source: 'judge_fixture'`의 `network: 'unusual'`)와 다량 조회(`recentEvents` 최근 300초 합계 10건 이상, 판정기 step_up과 같은 기준)가 함께 보이면 그 기기 하나의 회수를 제안합니다(`proposeRevocation(request)`, `detect([request])`). 지역·시각은 보지 않고, 입력 검사는 판정기의 `readAccessContext`를 그대로 씁니다. 판정기 응답은 여전히 `step_up` 5항목입니다.
 - 대상은 **확인된 가상 기기 한 개**입니다. 의심 구간(다른 네트워크 조회가 10분 안 120건 초과)의 조회가 모두 같은 기기 ID(엔진이 넘긴 16자리 `deviceId`)에서 왔을 때만 제안합니다.
 - 기기를 모르는 사건이 섞였거나, 기기가 둘 이상이거나, 기기 ID 형식이 틀리면 어느 기기인지 확정할 수 없으므로 제안하지 않고 `{ action: 'observe' }`입니다. 대상이 여럿이면 가장 먼저 탐지된 하나만 제안합니다.
 - 탐지는 제안만 돌려줍니다. 회수 API를 만들거나 부르지 않고, 기기 권한·세션·DB를 바꾸지 않으며, 로그도 남기지 않습니다.

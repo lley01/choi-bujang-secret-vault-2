@@ -135,7 +135,8 @@ const UNFAMILIAR_NETWORKS = new Set(['unusual']);
 const BURST_WINDOW_SECONDS = 300;
 const BURST_MIN_COUNT = 10;
 
-function burstRead(events) {
+// (9단계) 탐지의 회수 제안(src/detect.mjs)도 같은 다량 조회 기준을 쓰도록 내보냅니다. 판정 결과에는 영향이 없습니다.
+export function burstRead(events) {
   if (events === null) return false;
   const recent = events.filter((event) => event.ageSeconds <= BURST_WINDOW_SECONDS);
   return recent.reduce((total, event) => total + event.count, 0) >= BURST_MIN_COUNT;

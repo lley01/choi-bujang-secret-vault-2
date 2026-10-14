@@ -150,11 +150,11 @@ test('의심 표시에는 가명과 이유 코드만 있고 메모 내용·토�
 const DEV_A = 'a1b2c3d4e5f60718';
 const DEV_B = '0f1e2d3c4b5a6978';
 const onDevice = (list, deviceId) => list.map((item) => ({ ...item, deviceId }));
-const PROPOSAL = { action: 'propose_revocation', reasonCode: 'unusual_network_burst', subject: 'learner_fixture', deviceId: DEV_A };
+const PROPOSAL = { action: 'propose_revocation', reasonCode: 'unusual_network_burst', deviceId: DEV_A };
 
 test('의심 구간이 확인된 기기 한 개에서 나오면 그 기기 하나의 회수를 이유 코드와 함께 제안한다', () => {
   assert.deepEqual(detect(onDevice(reads(121), DEV_A)), PROPOSAL);
-  assert.deepEqual(Object.keys(detect(onDevice(reads(121), DEV_A))), ['action', 'reasonCode', 'subject', 'deviceId']);
+  assert.deepEqual(Object.keys(detect(onDevice(reads(121), DEV_A))), ['action', 'reasonCode', 'deviceId'], '대상은 기기 한 개와 이유 코드로 한정');
   const mixed = [...onDevice(reads(121), DEV_A), ...onDevice(reads(50, { network: 'usual', start: START + 500 }), DEV_B)];
   assert.deepEqual(detect(mixed), PROPOSAL, '평소 네트워크의 다른 기기는 대상이 아님');
 });
@@ -181,7 +181,8 @@ test('대상이 여럿이면 가장 먼저 탐지된 하나의 기기만 제안�
 
 test('회수 API를 부르거나 권한을 바꾸지 않는다: 탐지는 제안만 돌려주고 네트워크·파일·로그를 쓰지 않는다', async () => {
   const source = readFileSync(new URL('../src/detect.mjs', import.meta.url), 'utf8').replace(/\/\/.*$/gmu, '');
-  assert.doesNotMatch(source, /fetch\(|import\s|require\(|writeFile|appendFile|console\.|process\.|supabase|revoke\(/iu);
+  assert.deepEqual([...source.matchAll(/^import .* from '([^']+)';$/gmu)].map((m) => m[1]), ['./decider.mjs'], '판정기의 입력 검사만 가져옴');
+  assert.doesNotMatch(source, /fetch\(|require\(|writeFile|appendFile|console\.|process\.|supabase|revoke\(/iu);
   const original = globalThis.fetch;
   let called = 0;
   globalThis.fetch = async () => { called += 1; return new Response('{}'); };
@@ -222,4 +223,45 @@ test('자기 점검: 실제 회수와 시간은 심판이 확인하므로 요청
   } finally {
     globalThis.fetch = original;
   }
+});
+
+// 9단계 고침: 복합 의심 사건(판정 요청 모양)에도 별도 결과로 회수 제안을 낸다. 판정기 응답은 그대로.
+test('복합 의심 사건(다른 네트워크 + 다량 조회)은 그 가상 기기 한 개의 회수를 이유 코드와 함께 제안한다', async () => {
+  const { proposeRevocation } = await import('../src/detect.mjs');
+  const { fixtureRequests } = await import('../scripts/fixture-7.mjs');
+  const { suspicious, normal } = fixtureRequests();
+  const expected = { action: 'propose_revocation', reasonCode: 'unusual_network_burst', deviceId: 'a'.repeat(16) };
+  assert.deepEqual(detect([suspicious]), expected);
+  assert.deepEqual(proposeRevocation(suspicious), expected);
+  assert.deepEqual(detect([normal, suspicious]), expected, '정상 사건이 섞여도 의심 사건의 기기만');
+  assert.deepEqual(detect([normal]), { action: 'observe' }, '정상 사건은 그대로');
+  assert.equal(proposeRevocation(normal), null);
+  const seen = JSON.stringify(detect([suspicious]));
+  for (const value of ['learner_fixture', suspicious.requestId, 'foreign', '/notes/demo']) assert.ok(!seen.includes(value), `${value}는 결과에 없음`);
+});
+
+test('복합 의심 사건이라도 한쪽만 보이거나 기기·출처를 확정할 수 없으면 제안하지 않는다', async () => {
+  const { proposeRevocation } = await import('../src/detect.mjs');
+  const { fixtureRequests } = await import('../scripts/fixture-7.mjs');
+  const { suspicious } = fixtureRequests();
+  const without = (extra) => proposeRevocation({ ...suspicious, ...extra });
+  assert.equal(without({ signals: { ...suspicious.signals, network: 'usual' } }), null, '평소 네트워크 + 다량 조회');
+  assert.equal(without({ recentEvents: [] }), null, '다른 네트워크 + 조회 적음');
+  assert.equal(without({ recentEvents: [{ kind: 'risk_signal', ageSeconds: 400, count: 50 }] }), null, '오래된 조회');
+  assert.equal(without({ signals: { ...suspicious.signals, network: 'usual', region: 'foreign' } }), null, '지역만 다름');
+  assert.equal(without({ signals: { ...suspicious.signals, source: 'none' } }), null, '출처 없음');
+  assert.equal(without({ signals: { ...suspicious.signals, source: 'client' } }), null, '출처 불명');
+  assert.equal(without({ headers: { 'x-network': 'unusual' } }), null, '계약 밖 항목이 섞임');
+  assert.equal(without({ deviceRegistered: false }), null, '미등록 기기');
+  assert.equal(without({ deviceId: 'A'.repeat(16) }), null, '기기 ID 형식 틀림');
+  assert.notEqual(without({ signals: { ...suspicious.signals, region: 'local', hour: 14 } }), null, '지역·시각과 관계없이 네트워크 + 다량 조회면 제안');
+  for (const value of [null, 'x', [], {}]) assert.equal(proposeRevocation(value), null);
+});
+
+test('판정기의 허용/거부 응답 형식은 그대로다: 복합 의심 사건의 판정은 여전히 step_up 5항목', async () => {
+  const { decide } = await import('../src/decider.mjs');
+  const { fixtureRequests } = await import('../scripts/fixture-7.mjs');
+  const { suspicious } = fixtureRequests();
+  const response = await decide(suspicious);
+  assert.deepEqual(response, { schema: 'aleph.decision.v1', requestId: suspicious.requestId, decision: 'step_up', reasonCode: 'step_up_required', ruleIds: ['step_up_required'] });
 });
