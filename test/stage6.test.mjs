@@ -123,8 +123,9 @@ test('6단계 자기 점검: 요청은 6건만 보내고, 미등록 기기 점�
   try {
     const results = await runAttackChecks({ ...config, publicAppUrl: 'https://student-defense.vercel.app/' });
     assert.equal(sent, 6);
-    assert.equal(results.at(-1).attackId, 'unregistered_device_notes_read');
-    assert.match(results.at(-1).observed, /^미실행/u);
+    const unregistered = results.find((item) => item.attackId === 'unregistered_device_notes_read');
+    assert.ok(unregistered, '미등록 기기 점검 항목');
+    assert.match(unregistered.observed, /^미실행/u);
     assert.ok(results.length <= 20 && new Set(results.map((item) => item.attackId)).size === results.length);
   } finally {
     globalThis.fetch = original;

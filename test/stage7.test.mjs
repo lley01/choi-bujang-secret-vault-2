@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { RULE_IDS, decide, readAccessContext } from '../src/decider.mjs';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
@@ -180,4 +181,61 @@ test('npm run fixture:7 연습이 정상 allow, 복합 이상 step_up으로 통�
   const { execFileSync } = await import('node:child_process');
   const output = execFileSync(process.execPath, ['scripts/fixture-7.mjs'], { cwd: new URL('..', import.meta.url), encoding: 'utf8' });
   assert.equal(output, '정상 사건: allow\n복합 이상 사건: step_up\n');
+});
+
+// 7단계 다시 로그인 확인: 제공 엔진의 "같은 로그인 재로그인 시각" 확인 계약이 저장소에 없어 가상 사건으로만 시험합니다.
+// 실제 자료 차단과 새 로그인 뒤 재판정은 자기 점검에 미실행으로 남깁니다. 실측은 계약이 준비된 환경에서만 합니다.
+test('계약 확인: 판정 요청에 stepUp(나이)만 있고, 같은 로그인에 묶는 내용과 다시 로그인 흐름 계약은 아직 없다', async () => {
+  const { readFileSync, existsSync } = await import('node:fs');
+  const contract = readFileSync(new URL('../docs/DECIDER_REQUEST.md', import.meta.url), 'utf8');
+  assert.match(contract, /`stepUp` \| `\{verified, authAgeSeconds\}`/u);
+  assert.doesNotMatch(contract, /sessionId|auth_time|reauthAt|sameLogin/u, '같은 로그인·세션을 묶는 항목이 생기면 이 시험과 자기 점검을 갱신');
+  assert.equal(existsSync(new URL('../student-kit/sdp-core/decision-contract.mjs', import.meta.url)), false, '엔진 계약 코드는 저장소에 없음');
+});
+
+test('가상 사건: 다시 로그인 전에는 읽기·쓰기 모두 step_up으로 막고, 새 로그인 뒤 새 요청은 다시 판정해 허용한다', async () => {
+  for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {
+    const before = { ...suspicious(), method };
+    assert.deepEqual(await judged(before), STEP_UP, `다시 로그인 전 ${method}`);
+    const after = { ...before, requestId: crypto.randomUUID(), at: new Date().toISOString(), stepUp: { verified: true, authAgeSeconds: 5 } };
+    const response = await decide(after);
+    assert.equal(response.requestId, after.requestId, '새 요청 번호로 다시 판정');
+    assert.deepEqual([response.decision, response.reasonCode], ['allow', 'approved'], `다시 로그인 뒤 ${method}`);
+  }
+});
+
+test('가상 사건: 다시 로그인이 확인되지 않았거나 오래됐으면 계속 막는다(0초·900초는 계약 범위)', async () => {
+  for (const authAgeSeconds of [0, 900]) assert.equal((await decide({ ...suspicious(), stepUp: { verified: true, authAgeSeconds } })).decision, 'allow');
+  for (const stepUp of [{ verified: false, authAgeSeconds: null }, { verified: true, authAgeSeconds: 901 }, { verified: true, authAgeSeconds: -1 }]) {
+    assert.equal((await decide({ ...suspicious(), stepUp })).decision, 'step_up', JSON.stringify(stepUp));
+  }
+});
+
+test('토큰 원문을 기록하지 않는다: 판정기는 로그를 남기지 않고 응답에 요청 값을 싣지 않는다', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../src/decider.mjs', import.meta.url), 'utf8').replace(/\/\/.*$/gmu, '');
+  assert.doesNotMatch(source, /console\.|process\.std|writeFile|appendFile|fetch\(/u);
+  const fakeToken = `eyJ${'A'.repeat(20)}.${'B'.repeat(20)}.${'C'.repeat(20)}`;
+  const response = await decide({ ...suspicious(), subjectId: fakeToken });
+  assert.ok(!JSON.stringify(response).includes(fakeToken));
+});
+
+test('자기 점검: 실제 자료 차단·재판정은 요청을 보내지 않고 미실행으로 남긴다', async () => {
+  const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
+  const { runAttackChecks } = await import('../src/attack-check.mjs');
+  const original = globalThis.fetch;
+  let sent = 0;
+  globalThis.fetch = async (url) => { sent += 1; return String(url).endsWith('/data.json') ? new Response('not found', { status: 404 })
+    : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401 }); };
+  try {
+    const results = await runAttackChecks({ ...config, publicAppUrl: 'https://student-defense.vercel.app/' });
+    assert.equal(sent, 6, '로그인 없는 요청 6건 외에는 보내지 않음');
+    const item = results.find((entry) => entry.attackId === 'step_up_reauth_notes_read');
+    assert.ok(item, '다시 로그인 점검 항목');
+    assert.match(item.observed, /^미실행: 제공 엔진의 다시 로그인 시각 확인 계약이 아직 없어/u);
+    assert.doesNotMatch(JSON.stringify(results), /eyJ[A-Za-z0-9_-]{10,}|Bearer /u, '토큰 원문 없음');
+    assert.ok(results.length <= 20 && new Set(results.map((entry) => entry.attackId)).size === results.length);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

@@ -1,5 +1,6 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
+import { RULE_IDS } from './decider.mjs';
 async function readJson(url, { headers, method, body } = {}) {
   const response = await fetch(url, {
     redirect: 'error', signal: AbortSignal.timeout(10000),
@@ -100,6 +101,13 @@ export async function runAttackChecks(config) {
     // 미등록 기기 요청은 반 엔진이 확인한 기기 정보로만 만들 수 있어 심판이 보냅니다. 여기서는 보내지 않았으므로 미실행으로 남깁니다.
     results.push({ attackId: 'unregistered_device_notes_read', expected: '미등록 기기(deviceRegistered: false)의 자료실 요청은 판정기가 deny·device_not_registered로 거부',
       observed: '미실행: 미등록 기기 요청은 반 엔진의 기기 정보가 필요해 심판이 보냄(이 점검에서는 요청을 보내지 않음)' });
+  }
+  if (config.step >= 6 && RULE_IDS.includes('step_up_required')) {
+    // 7단계: 제공 엔진이 "같은 내 로그인으로 다시 로그인한 시각"을 확인해 넘기는 계약이 저장소에 없습니다
+    // (판정 요청의 stepUp에는 나이만 있고 같은 로그인에 묶는다는 내용, 다시 로그인 흐름, 앱 연결 계약이 없음).
+    // 그래서 실제 자료 차단과 새 로그인 뒤 재판정은 보내지 않고 미실행으로 남깁니다. 토큰은 만들거나 기록하지 않습니다.
+    results.push({ attackId: 'step_up_reauth_notes_read', expected: '복합 이상 접속은 다시 로그인 전 자료를 막고(step_up), 같은 로그인으로 다시 로그인한 뒤의 새 요청만 다시 판정해 허용',
+      observed: '미실행: 제공 엔진의 다시 로그인 시각 확인 계약이 아직 없어 실제 자료 차단·재판정을 실측하지 않음(가상 사건 규칙만 npm run test:stage7로 시험)' });
   }
   return results;
 }
