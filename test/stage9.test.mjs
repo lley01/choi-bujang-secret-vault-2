@@ -70,13 +70,14 @@ test('시각 순으로 정리하고 원본 배열·사건은 바꾸지 않는다
   }
 });
 
-test('이번에는 입력만 정리했다: detect는 여전히 관찰만 하고 아무것도 출력하지 않는다', () => {
+test('detect는 아무것도 출력하지 않는다(9단계 제작 3부터 다량 조회에는 회수 제안)', () => {
   const lines = [];
   const original = { log: console.log, warn: console.warn, error: console.error };
   Object.assign(console, { log: (...a) => lines.push(a), warn: (...a) => lines.push(a), error: (...a) => lines.push(a) });
   try {
     const many = Array.from({ length: 200 }, (_, i) => event({ at: new Date(Date.parse(AT) + i * 1000).toISOString(), content: '본문' }));
-    assert.deepEqual(detect(many), { action: 'observe' });
+    assert.deepEqual(detect(many), { action: 'propose_revocation', reasonCode: 'burst_read', subject: 'learner_fixture' });
+    assert.deepEqual(detect(many.slice(0, 120)), { action: 'observe' });
   } finally {
     Object.assign(console, original);
   }
@@ -129,13 +130,12 @@ test('네트워크 출처가 불명확하면(source: none·없음·client) 정�
   assert.deepEqual(findSuspicious(forged), [], '사건 바깥의 network·헤더는 읽지 않음');
 });
 
-test('제공된 연습 사건(네트워크 없음)과 detect의 결과는 그대로다', async () => {
+test('제공된 연습 사건(npm run detect:test) 여섯 건이 모두 계약대로 나온다(심판 판정 아님)', async () => {
   const { checkDetection } = await import('../scripts/detect-test.mjs');
   const results = await checkDetection(detect);
   assert.deepEqual(results.map((item) => [item.name, item.passed]), [
-    ['정상 조회 30건', true], ['10분 안에 120건', true], ['10분 안에 121건', false], ['폭주 조회 200건', false],
+    ['정상 조회 30건', true], ['10분 안에 120건', true], ['10분 안에 121건', true], ['폭주 조회 200건', true],
     ['서로 다른 사용자 각 100건', true], ['10분 밖으로 흩어진 조회 200건', true]]);
-  assert.deepEqual(detect(reads(300)), { action: 'observe' }, '의심 표시는 detect 결과를 바꾸지 않음');
   const plain = Array.from({ length: 300 }, (_, i) => event({ at: new Date(START + i * 1000).toISOString() }));
   assert.deepEqual(findSuspicious(plain), [], '네트워크 정보가 없는 연습 사건은 표시하지 않음');
 });
@@ -150,31 +150,34 @@ test('의심 표시에는 가명과 이유 코드만 있고 메모 내용·토�
 const DEV_A = 'a1b2c3d4e5f60718';
 const DEV_B = '0f1e2d3c4b5a6978';
 const onDevice = (list, deviceId) => list.map((item) => ({ ...item, deviceId }));
-const PROPOSAL = { action: 'propose_revocation', reasonCode: 'unusual_network_burst', deviceId: DEV_A };
+const PROPOSAL = { action: 'propose_revocation', reasonCode: 'burst_read', subject: 'learner_fixture', deviceId: DEV_A };
+const BY_SUBJECT = { action: 'propose_revocation', reasonCode: 'burst_read', subject: 'learner_fixture' };
 
-test('의심 구간이 확인된 기기 한 개에서 나오면 그 기기 하나의 회수를 이유 코드와 함께 제안한다', () => {
+test('복합 이상 패턴(다른 네트워크 + 10분 안 다량 조회)이 기기 한 개에서 나오면 그 기기의 회수를 계약 이유 코드로 제안한다', () => {
   assert.deepEqual(detect(onDevice(reads(121), DEV_A)), PROPOSAL);
-  assert.deepEqual(Object.keys(detect(onDevice(reads(121), DEV_A))), ['action', 'reasonCode', 'deviceId'], '대상은 기기 한 개와 이유 코드로 한정');
-  const mixed = [...onDevice(reads(121), DEV_A), ...onDevice(reads(50, { network: 'usual', start: START + 500 }), DEV_B)];
-  assert.deepEqual(detect(mixed), PROPOSAL, '평소 네트워크의 다른 기기는 대상이 아님');
+  assert.deepEqual(Object.keys(detect(onDevice(reads(121), DEV_A))), ['action', 'reasonCode', 'subject', 'deviceId']);
+  const mixed = [...onDevice(reads(121), DEV_A), ...onDevice(reads(50, { network: 'usual', start: START - 3_600_000 }), DEV_B)];
+  assert.deepEqual(detect(mixed), PROPOSAL, '탐지 구간 밖의 다른 기기는 대상이 아님');
 });
 
-test('기기를 확정할 수 없으면(기기 없음·섞임·둘 이상·형식 틀림) 제안하지 않고 관찰만 한다', () => {
-  assert.deepEqual(detect(reads(300)), { action: 'observe' }, '기기 ID 없음');
+test('기기 칸이 없으면 가명으로 제안하고, 기기가 둘 이상 섞이면 한 기기로 좁힐 수 없어 제안하지 않는다', () => {
+  assert.deepEqual(detect(reads(300)), BY_SUBJECT, '기기 칸 없음(계약 사건 모양)');
+  assert.deepEqual(detect(onDevice(reads(200), 'A1B2C3D4E5F60718')), BY_SUBJECT, '형식이 틀린 기기 ID는 지어내지 않음');
   const half = reads(200).map((item, i) => ({ ...item, deviceId: i % 2 ? DEV_A : DEV_B }));
   assert.deepEqual(detect(half), { action: 'observe' }, '두 기기');
   const someUnknown = reads(200).map((item, i) => (i === 50 ? item : { ...item, deviceId: DEV_A }));
-  assert.deepEqual(detect(someUnknown), { action: 'observe' }, '기기를 모르는 사건이 섞임');
-  assert.deepEqual(detect(onDevice(reads(200), 'A1B2C3D4E5F60718')), { action: 'observe' }, '형식이 틀린 기기 ID');
+  assert.deepEqual(detect(someUnknown), { action: 'observe' }, '기기를 모르는 사건이 섞이면 그 기기로 확정하지 않음');
 });
 
-test('정상 사건과 의심이 아닌 사건은 제안하지 않는다(지역 하나만으로도 제안 없음)', () => {
-  for (const list of [reads(120), reads(30), reads(500, { network: 'usual' }), reads(500, { network: 'usual', region: 'foreign' }), reads(200, { intervalSeconds: 7 })]) {
+test('정상 사건과 평소 네트워크로 확인된 다량 조회는 제안하지 않는다(지역 하나만으로도 제안 없음)', () => {
+  for (const list of [reads(120), reads(30), reads(500, { network: 'usual' }), reads(500, { network: 'usual', region: 'foreign' }), reads(200, { intervalSeconds: 7 }), reads(200, { method: 'POST' })]) {
     assert.deepEqual(detect(onDevice(list, DEV_A)), { action: 'observe' });
   }
+  assert.deepEqual(detect(onDevice([...reads(100), ...reads(100, { network: 'usual', start: START + 1000 })], DEV_A)), PROPOSAL,
+    '평소 네트워크와 다른 네트워크가 섞인 다량 조회는 제안');
 });
 
-test('대상이 여럿이면 가장 먼저 탐지된 하나의 기기만 제안한다', () => {
+test('대상이 여럿이면 가장 먼저 탐지된 하나만 제안한다', () => {
   const later = onDevice(reads(121, { sub: 'other_fixture', start: START + 60_000 }), DEV_B);
   assert.deepEqual(detect([...later, ...onDevice(reads(121), DEV_A)]), PROPOSAL);
 });
@@ -230,14 +233,14 @@ test('복합 의심 사건(다른 네트워크 + 다량 조회)은 그 가상 �
   const { proposeRevocation } = await import('../src/detect.mjs');
   const { fixtureRequests } = await import('../scripts/fixture-7.mjs');
   const { suspicious, normal } = fixtureRequests();
-  const expected = { action: 'propose_revocation', reasonCode: 'unusual_network_burst', deviceId: 'a'.repeat(16) };
+  const expected = { action: 'propose_revocation', reasonCode: 'burst_read', subject: 'learner_fixture', deviceId: 'a'.repeat(16) };
   assert.deepEqual(detect([suspicious]), expected);
   assert.deepEqual(proposeRevocation(suspicious), expected);
   assert.deepEqual(detect([normal, suspicious]), expected, '정상 사건이 섞여도 의심 사건의 기기만');
   assert.deepEqual(detect([normal]), { action: 'observe' }, '정상 사건은 그대로');
   assert.equal(proposeRevocation(normal), null);
   const seen = JSON.stringify(detect([suspicious]));
-  for (const value of ['learner_fixture', suspicious.requestId, 'foreign', '/notes/demo']) assert.ok(!seen.includes(value), `${value}는 결과에 없음`);
+  for (const value of [suspicious.requestId, 'foreign', '/notes/demo', 'risk_signal']) assert.ok(!seen.includes(value), `${value}는 결과에 없음`);
 });
 
 test('복합 의심 사건이라도 한쪽만 보이거나 기기·출처를 확정할 수 없으면 제안하지 않는다', async () => {

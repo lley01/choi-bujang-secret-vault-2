@@ -62,7 +62,7 @@ export function readDetectionEvents(events) {
 //   (120건 기준과 10분 구간은 docs/DETECT_EVENTS.md의 다량 조회 기준을 그대로 씁니다. 정확히 120건은 표시하지 않습니다.)
 // - 둘 중 하나만 보이면(평소 네트워크의 다량 조회, 다른 네트워크의 적은 조회) 표시하지 않습니다. 네트워크를 모르는 사건(null)은 세지 않습니다.
 // - 지역은 읽지도 쓰지도 않으므로 지역 하나만으로 확정하는 일이 없습니다. 다른 사용자의 사건은 합치지 않습니다.
-// - 결과는 의심 표시 목록입니다([{ subject, reasonCode }], 먼저 탐지된 순). 회수 제안은 아래 detect가 기기 한 개로 좁혀서 만듭니다.
+// - 결과는 의심 표시 목록입니다([{ subject, reasonCode }], 먼저 탐지된 순). 회수 제안은 아래 detect가 따로 만듭니다.
 export const SUSPICION_RULE = 'unusual_network_burst';
 const WINDOW_MS = 10 * 60 * 1000;
 const BURST_LIMIT = 120;
@@ -97,35 +97,73 @@ export function findSuspicious(events) {
   return Object.freeze(burstWindows(events).map(({ subject }) => Object.freeze({ subject, reasonCode: SUSPICION_RULE })));
 }
 
-// 9단계 제작 3 회수 제안: 탐지의 별도 결과(detect의 반환값)에만 propose_revocation을 넣습니다. 판정기의 허용/거부 응답(5항목)은 그대로입니다.
-// 결과는 대상 기기 한 개와 이유 코드로 한정합니다: { action: 'propose_revocation', reasonCode: 'unusual_network_burst', deviceId }
-// 이 파일은 제안만 돌려줍니다. 회수 API를 만들거나 부르지 않고, 기기 권한·세션·DB를 바꾸지 않으며, 로그도 남기지 않습니다.
+// 9단계 제작 3 회수 제안(고침): 탐지 규칙이 복합 이상 패턴을 찾으면 별도의 탐지 결과(detect의 반환값)로 propose_revocation을 제안합니다.
+// 판정기의 허용/거부 응답(5항목)은 그대로입니다. 이 파일은 제안만 돌려주고, 회수 API를 만들거나 부르지 않으며 권한·세션·DB를 바꾸지 않고 로그도 남기지 않습니다.
 // 실제 회수와 걸린 시간은 심판이 확인합니다.
-const proposal = (deviceId) => ({ action: 'propose_revocation', reasonCode: SUSPICION_RULE, deviceId });
+//
+// 결과 모양은 docs/DETECT_EVENTS.md 계약을 따릅니다: { action: 'propose_revocation', reasonCode: 'burst_read', subject: 가명 }
+// - 이유 코드는 계약에 적힌 burst_read를 씁니다(운영 등록부에 없는 코드를 새로 만들지 않음).
+// - 대상 기기: 탐지 구간의 사건이 모두 같은 확인된 기기 ID(16자리 deviceId)에서 왔으면 그 기기 하나를 deviceId로 덧붙입니다.
+//   기기 칸이 없는 계약 사건은 가명만으로 제안합니다(기기를 지어내지 않음). 기기가 둘 이상 섞이면 한 기기로 좁힐 수 없어 제안하지 않습니다.
+// 복합 이상 패턴(탐지 사건 모양): 같은 가명의 조회(GET)가 어느 10분 구간에서든 120건을 넘고, 그 구간의 네트워크가 "모두 평소(usual)"로
+//   확인되지 않은 경우입니다. 다른 네트워크(unusual)가 섞였거나 네트워크 정보가 없으면(계약 사건) 제안합니다.
+//   평소 네트워크로 확인된 다량 조회만 있으면 제안하지 않습니다. 지역은 보지 않습니다. 정확히 120건은 제안하지 않습니다.
+export const REVOCATION_REASON = 'burst_read';
 
-// ① 복합 의심 사건(판정 요청 모양, docs/DECIDER_REQUEST.md): 엔진이 확인한 등록 기기(deviceRegistered: true, 16자리 deviceId)에서
-//    평소와 다른 네트워크(signals.source 'judge_fixture'의 network 'unusual')와 갑작스러운 다량 조회(recentEvents 최근 300초 합계 10건 이상,
-//    판정기의 step_up 기준과 같음)가 함께 보이면 그 기기 하나의 회수를 제안합니다. 지역·시각은 보지 않습니다.
-//    입력 검사는 판정기의 readAccessContext를 그대로 써서, 계약 밖 항목·출처 불명 값은 이상으로 세지 않습니다.
+function readWindows(events) {
+  const reads = new Map();
+  for (const event of readDetectionEvents(events)) {
+    if (event.method !== 'GET') continue;
+    if (!reads.has(event.subject)) reads.set(event.subject, []);
+    reads.get(event.subject).push(event);
+  }
+  const windows = [];
+  for (const [subject, list] of reads) {
+    let start = 0;
+    for (let end = 0; end < list.length; end += 1) {
+      while (list[end].at - list[start].at >= WINDOW_MS) start += 1;
+      if (end - start + 1 > BURST_LIMIT) {
+        windows.push({ subject, detectedAt: list[end].at, events: list.slice(start, end + 1) });
+        break;
+      }
+    }
+  }
+  return windows.sort((a, b) => a.detectedAt - b.detectedAt || (a.subject < b.subject ? -1 : 1));
+}
+
+function proposalFor({ subject, events }) {
+  if (events.every((event) => event.network === 'usual')) return null;
+  const devices = new Set(events.map((event) => event.device));
+  if (devices.size > 1) return null;
+  const [device] = devices;
+  return device ? { action: 'propose_revocation', reasonCode: REVOCATION_REASON, subject, deviceId: device }
+    : { action: 'propose_revocation', reasonCode: REVOCATION_REASON, subject };
+}
+
+// 복합 의심 사건(판정 요청 모양, docs/DECIDER_REQUEST.md): 엔진이 확인한 등록 기기(deviceRegistered: true, 16자리 deviceId)에서
+// 다른 네트워크(signals.source 'judge_fixture'의 network 'unusual')와 다량 조회(recentEvents 최근 300초 합계 10건 이상)가 함께 보이면
+// 그 기기 하나의 회수를 같은 모양으로 제안합니다. 입력 검사는 판정기의 readAccessContext를 그대로 씁니다.
 export function proposeRevocation(request) {
   if (!isPlainObject(request) || own(request, 'schema') !== 'aleph.decision.v1') return null;
   const deviceId = own(request, 'deviceId');
-  if (own(request, 'deviceRegistered') !== true || typeof deviceId !== 'string' || !DEVICE_ID.test(deviceId)) return null;
+  const subject = own(request, 'subjectId');
+  if (own(request, 'deviceRegistered') !== true || typeof deviceId !== 'string' || !DEVICE_ID.test(deviceId)
+      || typeof subject !== 'string' || !PSEUDONYM.test(subject)) return null;
   const context = readAccessContext(request);
   if (context.network !== 'unusual' || !burstRead(context.recentEvents)) return null;
-  return proposal(deviceId);
+  return { action: 'propose_revocation', reasonCode: REVOCATION_REASON, subject, deviceId };
 }
 
-// ② 탐지 사건 모양(at·method·identity.sub): 의심 구간(다른 네트워크 조회가 10분 안 120건 초과)의 조회가 모두 같은 기기 ID에서 왔을 때만 제안합니다.
-//    기기를 모르는 사건이 섞였거나 기기가 둘 이상이면 어느 기기를 거둘지 확정할 수 없으므로 관찰만 합니다.
-// 한 번에 한 기기만 제안합니다. ①이 있으면 배열에서 먼저 나온 것을, 없으면 ②에서 가장 먼저 탐지된 것을 고릅니다.
+// 한 번에 한 대상만 제안합니다. 판정 요청 모양의 복합 의심 사건이 있으면 배열에서 먼저 나온 것을, 없으면 가장 먼저 탐지된 구간을 고릅니다.
 export function detect(events) {
   if (!Array.isArray(events)) throw new TypeError('invalid_detection_events');
   for (const item of events) {
     const composite = proposeRevocation(item);
     if (composite) return composite;
   }
-  const target = burstWindows(events).find((item) => !item.unknownDevice && item.devices.size === 1);
-  if (!target) return { action: 'observe' };
-  return proposal([...target.devices][0]);
+  for (const window of readWindows(events)) {
+    const proposal = proposalFor(window);
+    if (proposal) return proposal;
+  }
+  return { action: 'observe' };
 }

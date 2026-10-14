@@ -20,27 +20,26 @@
 
 **다시 확인하는 방법**: `npm run test:stage7` (가상 요청 시험이며 심판 판정이 아닙니다)
 
-## 추가: 9단계 제작 3 「기기 한 개의 회수 제안」
+## 추가: 9단계 제작 3 「회수 제안」(고침: 계약 모양과 `burst_read`)
 
 **작동하는 기능**
 
-- 탐지 결과(`src/detect.mjs`의 `detect`)에 회수 제안을 넣었습니다. 판정기의 허용/거부 응답(5항목)은 그대로입니다.
+- 탐지 규칙이 복합 이상 패턴을 찾으면 별도의 탐지 결과(`src/detect.mjs`의 `detect`)로 회수를 제안합니다. 판정기의 허용/거부 응답(5항목)은 그대로입니다.
   ```
-  { action: 'propose_revocation', reasonCode: 'unusual_network_burst', deviceId: '16자리 기기 ID' }
+  { action: 'propose_revocation', reasonCode: 'burst_read', subject: '가명' }                     // 기기 칸이 없는 계약 사건
+  { action: 'propose_revocation', reasonCode: 'burst_read', subject: '가명', deviceId: '16자리' }  // 확인된 기기 한 개
   ```
-- (고침) 결과는 대상 기기 한 개와 이유 코드로 한정합니다(가명 `subject`는 넣지 않음).
-- (고침) **복합 의심 사건**(판정 요청 모양: `deviceId`·`signals`·`recentEvents`)도 처리합니다. 처음에는 탐지 사건 모양(`identity.sub`)만 봐서 복합 의심 사건에 제안이 없었습니다. 등록 기기(`deviceRegistered: true`, 16자리 `deviceId`)에서 다른 네트워크(`signals.source: 'judge_fixture'`의 `network: 'unusual'`)와 다량 조회(`recentEvents` 최근 300초 합계 10건 이상, 판정기 step_up과 같은 기준)가 함께 보이면 그 기기 하나의 회수를 제안합니다(`proposeRevocation(request)`, `detect([request])`). 지역·시각은 보지 않고, 입력 검사는 판정기의 `readAccessContext`를 그대로 씁니다. 판정기 응답은 여전히 `step_up` 5항목입니다.
-- 대상은 **확인된 가상 기기 한 개**입니다. 의심 구간(다른 네트워크 조회가 10분 안 120건 초과)의 조회가 모두 같은 기기 ID(엔진이 넘긴 16자리 `deviceId`)에서 왔을 때만 제안합니다.
-- 기기를 모르는 사건이 섞였거나, 기기가 둘 이상이거나, 기기 ID 형식이 틀리면 어느 기기인지 확정할 수 없으므로 제안하지 않고 `{ action: 'observe' }`입니다. 대상이 여럿이면 가장 먼저 탐지된 하나만 제안합니다.
-- 탐지는 제안만 돌려줍니다. 회수 API를 만들거나 부르지 않고, 기기 권한·세션·DB를 바꾸지 않으며, 로그도 남기지 않습니다.
-- 자기 점검(`npm run bundle`)에 `doppelganger_device_revocation`을 **미실행**으로 남깁니다. 실제 회수와 걸린 시간은 심판이 확인합니다.
+- 결과 모양과 이유 코드는 `docs/DETECT_EVENTS.md` 계약을 따릅니다. (고침) 처음에는 네트워크·기기 칸이 있어야만 제안하고 이유 코드도 등록되지 않은 `unusual_network_burst`를 써서, 계약 모양의 복합 의심 사건에 제안이 없었습니다.
+- 복합 이상 패턴(탐지 사건): 같은 가명의 조회(GET)가 어느 10분 구간에서든 120건을 넘고, 그 구간의 네트워크가 모두 평소(`usual`)로 확인되지는 않은 경우입니다(다른 네트워크가 섞였거나 네트워크 정보가 없음). 평소 네트워크로 확인된 다량 조회, 정확히 120건, 10분 밖으로 흩어진 조회, 다른 사용자 합산은 제안하지 않습니다. 지역은 보지 않습니다.
+- 대상 기기: 탐지 구간의 사건이 모두 같은 확인된 기기(16자리 `deviceId`)에서 왔으면 그 기기 하나를 `deviceId`로 덧붙입니다. 기기 칸이 없으면 기기를 지어내지 않고 가명으로만 제안하고, 기기가 둘 이상 섞이면 한 기기로 좁힐 수 없어 제안하지 않습니다.
+- 복합 의심 사건(판정 요청 모양): 등록 기기에서 다른 네트워크(`judge_fixture`의 `unusual`)와 다량 조회(`recentEvents` 최근 300초 합계 10건 이상)가 함께 보이면 같은 모양으로 그 기기 하나를 제안합니다(`proposeRevocation(request)`, `detect([request])`).
+- 의심 표시(`findSuspicious`, `unusual_network_burst`)는 제작 2 그대로입니다(다른 네트워크 + 다량 조회일 때만).
+- 탐지는 제안만 돌려줍니다. 회수 API를 만들거나 부르지 않고, 기기 권한·세션·DB를 바꾸지 않으며, 로그도 남기지 않습니다. 자기 점검에는 `doppelganger_device_revocation`을 **미실행**으로 남깁니다. 실제 회수와 걸린 시간은 심판이 확인합니다.
 
-**아직 하지 않은 것**
+**다시 확인하는 방법** (가상 사건 연습이며 실제 회수나 심판 판정이 아닙니다)
 
-- `docs/DETECT_EVENTS.md`의 연습 계약은 다량 조회만으로 `{ action, reasonCode: 'burst_read', subject }`를 기대합니다. 이번 제안은 네트워크·기기 조건과 `deviceId` 칸이 더 있어서, 네트워크·기기 칸이 없는 `npm run detect:test`의 121건·200건 두 줄은 「확인 필요」로 남습니다.
-- `unusual_network_burst` 이유 코드는 운영 등록부에서 확인한 값이 아닙니다.
-
-**다시 확인하는 방법**: `npm run test:stage9` (가상 사건 연습이며 실제 회수나 심판 판정이 아닙니다)
+- `npm run detect:test` → 여섯 줄 모두 `통과`
+- `npm run test:stage9`
 
 ## 추가: 9단계 제작 2 「의심 표시 규칙」(`unusual_network_burst`)
 
