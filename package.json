@@ -16,6 +16,7 @@
     "test:auth": "node --test test/auth-api.test.mjs",
     "test:stage6": "node --test test/stage6.test.mjs",
     "test:stage7": "node --test test/stage7.test.mjs",
+    "test:stage8": "node --test test/stage8.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "decider:show": "node scripts/decider-show.mjs",

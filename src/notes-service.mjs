@@ -12,6 +12,8 @@ import { createClient } from '@supabase/supabase-js';
 import alephConfig from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from './verify-login.mjs';
 import { bearerFromCookie } from './auth-cookies.mjs';
+import { RESOURCE_HEADER, RESOURCES } from './resources.mjs';
+import { checkAccess } from './access-check.mjs';
 
 const MAX_LIST = 100;
 const MAX_TITLE = 200;
@@ -71,6 +73,9 @@ export function createNotesService({ env = process.env, createSupabase = createC
 
   // 공통 관문: 방법 확인 → 환경변수 → 로그인 토큰 검사. 통과하면 { identity, supabase }를 돌려주고, 아니면 이미 응답했으므로 null.
   async function enter(request, response, allowed, route) {
+    // 8단계: 이 서버 함수가 다루는 자원은 언제나 '내 자료실 메모'입니다. 거부(401·405)를 포함한 모든 응답에 서버가 정한 자원 ID를 붙입니다.
+    // 브라우저가 보낸 X-Resource-Id 헤더나 ?resource= 쿼리는 읽지 않습니다.
+    response.setHeader(RESOURCE_HEADER, RESOURCES.NOTE);
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('Vary', 'Authorization');
     if (!allowed.includes(request.method)) {
@@ -119,6 +124,13 @@ export function createNotesService({ env = process.env, createSupabase = createC
     return { identity, me: identity.userId.toLowerCase(), supabase };
   }
 
+  // 8단계 제작 3: DB 질의가 owner_id로 걸렀더라도, 돌아온 행의 저장된 소유자를 검증된 사용자와 한 번 더 대조합니다.
+  // 메모는 주인 본인만이고 강사 예외는 없습니다(요청 본문·헤더의 role은 읽지 않음). 거부 사유는 짧은 코드로만 로그에 남깁니다.
+  const denied = (request, route, reason) => {
+    console.warn('NOTES_ACCESS_DENIED', JSON.stringify({ method: request.method, route, reason }));
+  };
+  const ownsRow = (me, row) => checkAccess({ resource: RESOURCES.NOTE, action: 'read', userId: me, ownerId: row?.owner_id });
+
   const upstreamFailed = (response, error, name) => {
     console.error(name, error?.code ?? 'unknown');
     return fail(response, 500, 'NOTES_UNAVAILABLE');
@@ -131,11 +143,13 @@ export function createNotesService({ env = process.env, createSupabase = createC
     const { me, supabase } = entered;
     try {
       if (request.method === 'GET') {
-        const { data, error } = await supabase.from('notes').select(COLUMNS)
+        const { data, error } = await supabase.from('notes').select(`${COLUMNS}, owner_id`)
           .eq('owner_id', me)
           .order('created_at', { ascending: true }).order('id', { ascending: true }).limit(MAX_LIST);
         if (error || !Array.isArray(data)) return upstreamFailed(response, error, 'NOTES_LIST_FAILED');
-        return response.status(200).json(data.map(toNote));
+        const mine = data.filter((row) => ownsRow(me, row).allowed);
+        if (mine.length !== data.length) denied(request, 'collection', ownsRow(me, data.find((row) => !ownsRow(me, row).allowed)).reason);
+        return response.status(200).json(mine.map(toNote));
       }
 
       const input = parseJsonBody(request);
@@ -167,10 +181,18 @@ export function createNotesService({ env = process.env, createSupabase = createC
     const id = rawId.toLowerCase();
     try {
       if (request.method === 'GET') {
-        const { data, error } = await supabase.from('notes').select(COLUMNS)
+        const { data, error } = await supabase.from('notes').select(`${COLUMNS}, owner_id`)
           .eq('id', id).eq('owner_id', me).maybeSingle();
         if (error) return upstreamFailed(response, error, 'NOTES_READ_FAILED');
-        if (!data) return fail(response, 404, 'NOT_FOUND');
+        if (!data) {
+          denied(request, 'item', 'not_found_or_not_owner');
+          return fail(response, 404, 'NOT_FOUND');
+        }
+        const access = ownsRow(me, data);
+        if (!access.allowed) {
+          denied(request, 'item', access.reason);
+          return fail(response, 404, 'NOT_FOUND');
+        }
         return response.status(200).json(toNote(data));
       }
 
@@ -188,8 +210,11 @@ export function createNotesService({ env = process.env, createSupabase = createC
           .eq('id', id).eq('owner_id', me)
           .select(`${COLUMNS}, owner_id`);
         if (error || !Array.isArray(data)) return upstreamFailed(response, error, 'NOTES_UPDATE_FAILED');
-        if (!data.length) return fail(response, 404, 'NOT_FOUND');
-        if (data.length !== 1 || String(data[0].owner_id).toLowerCase() !== me) {
+        if (!data.length) {
+          denied(request, 'item', 'not_found_or_not_owner');
+          return fail(response, 404, 'NOT_FOUND');
+        }
+        if (data.length !== 1 || !ownsRow(me, data[0]).allowed) {
           console.error('NOTES_OWNER_MISMATCH');
           return fail(response, 500, 'NOTES_UNAVAILABLE');
         }
@@ -197,9 +222,16 @@ export function createNotesService({ env = process.env, createSupabase = createC
       }
 
       const { data, error } = await supabase.from('notes').delete()
-        .eq('id', id).eq('owner_id', me).select('id');
+        .eq('id', id).eq('owner_id', me).select('id, owner_id');
       if (error || !Array.isArray(data)) return upstreamFailed(response, error, 'NOTES_DELETE_FAILED');
-      if (!data.length) return fail(response, 404, 'NOT_FOUND');
+      if (!data.length) {
+        denied(request, 'item', 'not_found_or_not_owner');
+        return fail(response, 404, 'NOT_FOUND');
+      }
+      if (data.length !== 1 || !ownsRow(me, data[0]).allowed) {
+        console.error('NOTES_OWNER_MISMATCH');
+        return fail(response, 500, 'NOTES_UNAVAILABLE');
+      }
       return response.status(204).end();
     } catch {
       console.error('NOTES_REQUEST_FAILED');

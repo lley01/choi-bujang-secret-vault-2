@@ -144,10 +144,9 @@ test('저장소의 identityProvider는 도우미 검증을 통과하고 비밀�
   assert.ok(!/sb_secret_|service_role|eyJ[A-Za-z0-9_-]{12,}/u.test(JSON.stringify(config)));
 });
 
-test('allowedRoutes는 실제로 있는 GET·POST·PUT·DELETE 경로와 정확히 같다', () => {
+test('allowedRoutes는 판정기가 허용하는 경로와 정확히 같고, 서버 함수 파일은 그대로 있다(8단계 구역 규칙)', () => {
   const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
-  assert.deepEqual(config.allowedRoutes, ['GET /api/notes', 'POST /api/notes', 'GET /api/notes/:id', 'PUT /api/notes/:id', 'DELETE /api/notes/:id',
-    'GET /api/auth/session', 'POST /api/auth/login', 'POST /api/auth/logout']);
+  assert.deepEqual(config.allowedRoutes, ['GET /api/notes/:id', 'PUT /api/notes/:id', 'DELETE /api/notes/:id', 'GET /api/notices', 'GET /api/notices/:id']);
   for (const file of ['../api/notes.js', '../api/notes/[id].js', '../api/auth/[action].js']) {
     assert.ok(readFileSync(new URL(file, import.meta.url), 'utf8').length > 0, `${file}가 있어야 합니다`);
   }

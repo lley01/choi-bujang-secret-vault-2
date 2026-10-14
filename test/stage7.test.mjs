@@ -108,7 +108,7 @@ test('요청이 객체가 아니어도 오류 없이 모두 모름으로 답한�
 test('입력 검사는 기기 규칙의 판정을 바꾸지 않는다(복합 이상은 아래 step_up_required 시험)', async () => {
   const cases = [[normal(), 'allow', 'approved'],
     [{ ...normal(), deviceRegistered: false }, 'deny', 'device_not_registered'],
-    [{ ...normal(), method: 'PATCH' }, 'deny', 'starter_not_ready']];
+    [{ ...normal(), method: 'PATCH' }, 'deny', 'route_not_allowed']];
   for (const [request, decision, reasonCode] of cases) {
     const response = await decide(request);
     assert.equal(response.decision, decision);
@@ -119,12 +119,12 @@ test('입력 검사는 기기 규칙의 판정을 바꾸지 않는다(복합 이
 // 7단계 step_up_required 규칙: 평소와 다른 시각 + 처음 보는 네트워크 + 갑작스러운 대량 읽기가 모두 보일 때만 추가 확인.
 const judged = async (request) => { const r = await decide(request); return [r.decision, r.reasonCode, r.ruleIds.join(',')]; };
 const STEP_UP = ['step_up', 'step_up_required', 'step_up_required'];
-const ALLOW = ['allow', 'approved', 'device_registered'];
+const ALLOW = ['allow', 'approved', 'device_registered,resource_zone'];
 const signalsOf = (overrides) => ({ source: 'judge_fixture', region: 'foreign', network: 'unusual', hour: 3, ...overrides });
 const BURST = [{ kind: 'risk_signal', ageSeconds: 60, count: 20 }];
 
 test('RULE_IDS에 step_up_required를 더했고 기존 규칙은 그대로다', () => {
-  assert.deepEqual([...RULE_IDS], ['starter.deny', 'device_registered', 'step_up_required']);
+  assert.deepEqual([...RULE_IDS].slice(0, 3), ['starter.deny', 'device_registered', 'step_up_required']);
 });
 
 test('정해진 복합 사건은 추가 확인(step_up), 정상 사건은 허용으로 나오고 사유가 응답에 남는다', async () => {
@@ -171,10 +171,10 @@ test('추가 확인을 마친 경우만 허용하고, stepUp 값이 틀리면 �
   assert.deepEqual(await judged({ ...normal(), stepUp: { verified: true, authAgeSeconds: 60 } }).then(([d]) => d), 'allow');
 });
 
-test('기존 기기 규칙이 먼저다: 미등록 기기는 복합 이상이어도 거부, 화면 밖 메서드는 기본 거부', async () => {
+test('기존 기기 규칙이 먼저다: 미등록 기기는 복합 이상이어도 거부, 구역 밖 요청은 구역 규칙이 거부', async () => {
   assert.deepEqual(await judged({ ...suspicious(), deviceRegistered: false }), ['deny', 'device_not_registered', 'device_registered']);
-  assert.deepEqual(await judged({ ...suspicious(), method: 'PATCH' }), ['deny', 'starter_not_ready', 'starter.deny']);
-  for (const method of ['POST', 'PUT', 'DELETE']) assert.deepEqual(await judged({ ...suspicious(), method }), STEP_UP, method);
+  assert.deepEqual(await judged({ ...suspicious(), method: 'PATCH' }), ['deny', 'route_not_allowed', 'resource_zone']);
+  for (const method of ['PUT', 'DELETE']) assert.deepEqual(await judged({ ...suspicious(), method, route: `${method} /notes/:id` }), STEP_UP, method);
 });
 
 test('npm run fixture:7 연습이 정상 allow, 복합 이상 step_up으로 통과한다(심판 판정 아님)', async () => {
@@ -194,8 +194,8 @@ test('계약 확인: 판정 요청에 stepUp(나이)만 있고, 같은 로그인
 });
 
 test('가상 사건: 다시 로그인 전에는 읽기·쓰기 모두 step_up으로 막고, 새 로그인 뒤 새 요청은 다시 판정해 허용한다', async () => {
-  for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {
-    const before = { ...suspicious(), method };
+  for (const method of ['GET', 'PUT', 'DELETE']) {
+    const before = { ...suspicious(), method, route: `${method} /notes/:id` };
     assert.deepEqual(await judged(before), STEP_UP, `다시 로그인 전 ${method}`);
     const after = { ...before, requestId: crypto.randomUUID(), at: new Date().toISOString(), stepUp: { verified: true, authAgeSeconds: 5 } };
     const response = await decide(after);

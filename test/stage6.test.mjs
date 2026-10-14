@@ -16,16 +16,16 @@ function assertShape(request, response) {
   assert.ok(response.ruleIds.length > 0 && response.ruleIds.every((id) => RULE_IDS.includes(id)));
 }
 
-test('RULE_IDS에 device_registered를 더했고 시작 틀의 starter.deny는 그대로 맨 앞에 있다(7단계에서 step_up_required 추가)', () => {
-  assert.deepEqual([...RULE_IDS], ['starter.deny', 'device_registered', 'step_up_required']);
+test('RULE_IDS에 device_registered를 더했고 시작 틀의 starter.deny는 그대로 맨 앞에 있다(7단계 step_up_required, 8단계 resource_zone 추가)', () => {
+  assert.deepEqual([...RULE_IDS], ['starter.deny', 'device_registered', 'step_up_required', 'resource_zone']);
   assert.ok(Object.isFrozen(RULE_IDS));
 });
 
-test('등록 기기의 읽기(GET) 요청은 허용한다', async () => {
+test('등록 기기의 메모 한 건 읽기(GET /notes/:id) 요청은 허용한다(8단계부터 구역 규칙도 함께 허용)', async () => {
   const request = base();
   const response = await decide(request);
   assertShape(request, response);
-  assert.deepEqual(response, { schema: 'aleph.decision.v1', requestId: request.requestId, decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered'] });
+  assert.deepEqual(response, { schema: 'aleph.decision.v1', requestId: request.requestId, decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered', 'resource_zone'] });
 });
 
 test('미등록이거나 값이 없거나 true가 아니면 device_not_registered로 거부한다', async () => {
@@ -47,29 +47,34 @@ test('미등록 기기는 쓰기 요청도 device_not_registered로 거부한다
   }
 });
 
-test('등록 기기에서 기존 화면이 쓰는 모든 요청(화면 열기·로그인·로그아웃·메모 읽기·추가·수정·삭제)이 열린다', async () => {
+// 8단계부터: 판정기는 allowedRoutes에 적은 구역 경로만 열고, 화면만 쓰는 목록·추가·로그인 경로(엔진을 거치지 않음)는 판정기에서 거부합니다.
+test('등록 기기: allowedRoutes 경로는 열리고, 그 밖의 화면 경로는 구역 규칙이 거부한다. 미등록 기기는 모두 거부', async () => {
   const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
   const page = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
   const screenRoutes = [...page.matchAll(/(?:authRequest|callApi)\('([A-Z]+)', [`']([^`']+)[`']/gu)]
     .map(([, method, path]) => `${method} ${path.replace(/\$\{[^}]+\}/u, ':id')}`);
   assert.ok(screenRoutes.length >= 7, '화면 코드에서 요청을 찾지 못했습니다');
   for (const route of new Set(['GET /', ...screenRoutes, ...config.allowedRoutes])) {
-    const [method, path] = route.split(' ');
-    const request = { ...base(), method, path, route };
+    const [method, shape] = route.split(' ');
+    const path = shape.replace(':id', 'demo');
+    const service = /^\/api\/([a-z]+)/u.exec(shape)?.[1] ?? 'notes';
+    const request = { ...base(), method, path, route, service };
     const response = await decide(request);
     assertShape(request, response);
-    assert.deepEqual([response.decision, response.reasonCode, response.ruleIds], ['allow', 'approved', ['device_registered']], route);
+    const expected = config.allowedRoutes.includes(route)
+      ? ['allow', 'approved', ['device_registered', 'resource_zone']] : ['deny', 'route_not_allowed', ['resource_zone']];
+    assert.deepEqual([response.decision, response.reasonCode, response.ruleIds], expected, route);
     const denied = await decide({ ...request, requestId: crypto.randomUUID(), deviceRegistered: false });
     assert.deepEqual([denied.decision, denied.reasonCode], ['deny', 'device_not_registered'], `미등록 ${route}`);
   }
 });
 
-test('등록 기기라도 화면이 쓰지 않는 메서드는 이 규칙이 허용하지 않고, 기존 기본 거부(starter.deny)가 그대로 답한다', async () => {
+test('등록 기기라도 화면이 쓰지 않는 메서드는 허용하지 않는다(8단계부터 구역 규칙이 route_not_allowed로 거부)', async () => {
   for (const method of ['PATCH', 'HEAD', 'OPTIONS', 'TRACE', 'get', '', undefined]) {
     const request = { ...base(), method };
     const response = await decide(request);
     assertShape(request, response);
-    assert.deepEqual([response.decision, response.reasonCode, response.ruleIds], ['deny', 'starter_not_ready', ['starter.deny']], String(method));
+    assert.deepEqual([response.decision, response.reasonCode, response.ruleIds], ['deny', 'route_not_allowed', ['resource_zone']], String(method));
   }
 });
 
@@ -89,23 +94,23 @@ test('로컬 연습(npm run decider:test)의 기기 확인 두 건이 통과한�
 test('npm run decider:show 는 등록 기기 allow, 미등록 기기 deny·device_not_registered 를 그대로 보여 준다', async () => {
   const { execFileSync } = await import('node:child_process');
   const output = execFileSync(process.execPath, ['scripts/decider-show.mjs'], { cwd: new URL('..', import.meta.url), encoding: 'utf8' });
-  assert.match(output, /^등록 기기의 정상 요청 \(deviceRegistered: true, GET\) → allow · approved · device_registered$/mu);
+  assert.match(output, /^등록 기기의 정상 요청 \(deviceRegistered: true, GET\) → allow · approved · device_registered,resource_zone$/mu);
   assert.match(output, /^미등록 기기의 가상 요청 \(deviceRegistered: false, GET\) → deny · device_not_registered · device_registered$/mu);
   assert.match(output, /심판 판정이 아닙니다/u);
 });
 
-test('설정은 6단계이고, 실제 빌드(Vercel 흉내)가 만든 /aleph.json도 6단계로 보인다', async () => {
+test('설정은 6단계 이상이고, 실제 빌드(Vercel 흉내)가 만든 /aleph.json도 설정과 같은 단계로 보인다', async () => {
   const { execFileSync } = await import('node:child_process');
   const { rmSync } = await import('node:fs');
   const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
-  assert.equal(config.step, 6);
+  assert.ok(config.step >= 6);
   const output = new URL('../public/aleph.json', import.meta.url);
   try {
     execFileSync(process.execPath, ['scripts/build-public.mjs'], { cwd: new URL('..', import.meta.url), stdio: 'pipe', env: { ...process.env,
       VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
       VERCEL_GIT_COMMIT_SHA: 'e'.repeat(40), VERCEL_URL: 'defense-app-mno345.vercel.app' } });
     const written = JSON.parse(readFileSync(output, 'utf8'));
-    assert.equal(written.step, 6);
+    assert.equal(written.step, config.step);
     assert.deepEqual(written.allowedRoutes, config.allowedRoutes);
     assert.equal(written.originalApiUrl, config.originalApiUrl);
   } finally {

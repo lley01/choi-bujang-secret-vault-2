@@ -20,6 +20,71 @@
 
 **다시 확인하는 방법**: `npm run test:stage7` (가상 요청 시험이며 심판 판정이 아닙니다)
 
+## 추가: 8단계 제작 3 「자료 API가 권한을 다시 대조합니다」
+
+**작동하는 기능**
+
+- `src/access-check.mjs`의 `checkAccess`가 검증된 사용자(`src/verify-login.mjs`의 userId)와 저장된 소유자·강사 권한을 대조합니다. 판정기가 허용한 요청도 이 확인을 다시 거칩니다.
+
+| 자원 | 허용 조건 | 거부 사유 |
+|---|---|---|
+| 메모 `vault.note` | 저장된 `owner_id` = 검증된 사용자(강사 예외 없음) | `not_owner`, `owner_missing` |
+| 반 공지 `class.notice` | 읽기: 로그인한 사용자 / 쓰기: 저장된 강사 권한 | `not_instructor` |
+| 강사 자료 `instructor.material` | 저장된 강사 권한 | `not_instructor` |
+| 그 밖 | 없음 | `unknown_resource` (검증된 사용자가 없으면 `no_verified_user`) |
+
+- 메모 API는 DB가 `owner_id`로 거른 결과를 받은 뒤에도 각 행의 저장된 소유자를 한 번 더 대조합니다. 남의 행이 섞이면 목록에서 빼고, 한 건 조회는 404로 답합니다(있다는 사실도 알리지 않음). 삭제 결과가 남의 행이면 500으로 닫습니다.
+- 거부하면 서버 로그에 짧은 사유만 남깁니다: `NOTES_ACCESS_DENIED {"method":"GET","route":"item","reason":"not_owner"}`. 사용자 ID·토큰·메모 본문은 남기지 않습니다. 없거나 남의 메모라 질의 결과가 비면 `not_found_or_not_owner`입니다.
+- 강사 권한은 `readStoredRole`이 서버 전용 키로 Supabase Auth 사용자의 `app_metadata.class_role`(서버만 바꿀 수 있는 값)에서만 읽습니다. 화면 메뉴, 요청 본문·헤더·쿼리의 `role`, 사용자가 바꿀 수 있는 `user_metadata`는 믿지 않습니다.
+
+**아직 하지 않은 것**
+
+- 저장된 강사 권한을 실제로 넣지 않았습니다(어떤 계정에도 `class_role`이 없으므로 지금은 아무도 강사가 아님). 공지 API·관리 경로·강사 자료 API가 아직 없어서 `readStoredRole`은 그 경로들이 생길 때 씁니다.
+
+**다시 확인하는 방법**: `npm run test:stage8` (가짜 저장소 시험이며 심판 판정이 아닙니다). 배포 뒤에는 B 계정으로 A의 메모 주소(`/api/notes/<A의 메모 id>`)를 요청하면 404이고, Vercel Logs에 `NOTES_ACCESS_DENIED … not_found_or_not_owner`가 남아야 합니다.
+
+## 추가: 8단계 제작 2 「판정기의 구역 규칙」(규칙 `resource_zone`)
+
+**작동하는 기능**
+
+- `RULE_IDS = ['starter.deny', 'device_registered', 'step_up_required', 'resource_zone']`. 순서는 ① 기기(미등록 거부) → ② 구역 → ③ 복합 이상 추가 확인 → ④ 허용(`ruleIds: ['device_registered', 'resource_zone']`)입니다.
+- 계약의 `service`·`method`·`path`·`route`만 보고 세 구역으로 나눕니다. `route`는 아래 모양과 글자 그대로 같아야 하고, `path`는 그 모양의 `:id` 자리에 한 칸을 넣은 것이어야 합니다. 계약 예시 모양(`/notes/:id`)과 `/api` 접두 모양(`/api/notes/:id`)을 모두 받습니다.
+
+| 구역 | `service` | 허용 | 거부(이유 코드) |
+|---|---|---|---|
+| 메모 | `notes` | `GET`·`PUT`·`DELETE /notes/:id` | ID 없는 목록·추가(`/notes`), 다른 메서드, 더 깊은 경로 → `route_not_allowed` |
+| 반 공지 | `notices` | `GET /notices`, `GET /notices/:id` | `POST`·`PUT`·`PATCH`·`DELETE`는 누구에게나 → `notice_read_only` |
+| 강사 자료 | `materials` | 없음 | 모든 요청 → `instructor_materials_denied` |
+
+- `service`와 `path`가 서로 다른 구역을 가리키면 더 엄격한 쪽을 먼저 적용하고(강사 자료 → 공지 쓰기), 그래도 다르면 거부합니다.
+- 알 수 없는 경로·서비스, 쿼리가 붙은 요청(`queryLength`가 0이 아니거나 빈 쿼리 지문이 아님)은 `route_not_allowed`입니다. 쿼리로 기능을 고르지 않고, `:id`와 같은 깊이에 `export` 같은 기능 경로를 두지 않습니다(`/notes/export`는 "ID가 export인 메모"일 뿐).
+- 메모 ID 형식은 좁히지 않습니다(심판의 가상 ID는 UUID가 아닐 수 있음). 빈 칸·`.`·`..`·인코딩된 `/`·`\\`처럼 한 칸이 아닌 것만 막습니다.
+- 메모 주인 비교는 판정기가 하지 않고, 허용된 요청도 메모 API(제작 3, `src/notes-service.mjs`)가 로그인과 `owner_id`를 다시 확인합니다.
+- `aleph.config.json`의 `allowedRoutes`는 판정기가 허용하는 다섯 경로만 남겼습니다: `GET /api/notes/:id`, `PUT /api/notes/:id`, `DELETE /api/notes/:id`, `GET /api/notices`, `GET /api/notices/:id`.
+
+**아직 하지 않은 것**
+
+- 판정 요청에 역할이 없어서 강사의 공지 수정은 판정기가 아니라 서버의 관리 경로에서 처리해야 합니다. 그 관리 경로와 공지 API·자료(`/api/notices`)는 아직 만들지 않았습니다.
+- 화면이 쓰는 메모 목록·추가(`GET`·`POST /api/notes`)와 로그인 경로(`/api/auth/*`)는 판정기가 거부하는 경로라 허용 경로에서 뺐습니다. 이 경로들은 서버 함수로는 그대로 동작하지만, 엔진을 거치면 판정기가 거부합니다.
+- 새 이유 코드(`route_not_allowed`, `notice_read_only`, `instructor_materials_denied`)는 운영 등록부에서 확인한 값이 아닙니다. 등록부에 없으면 엔진이 거부로 처리하므로, 거부 결과 자체는 바뀌지 않습니다.
+
+**다시 확인하는 방법** (가상 요청 연습이며 심판 판정이 아닙니다): `npm run test:stage8`, `npm run decider:test`, `npm run fixture:7`
+
+## 추가: 8단계 제작 1 「자료마다 자원 ID를 붙입니다」
+
+**작동하는 기능**
+
+- `src/resources.mjs`에 자원 ID 두 개를 정했습니다. 내 자료실 메모는 `vault.note`, 강사 공지는 `class.notice`입니다.
+- 메모 API(`/api/notes`, `/api/notes/:id`)는 성공·거부(401·405·404·400·500)를 가리지 않고 **모든 응답에 `X-Resource-Id: vault.note`** 헤더를 붙입니다. 이 값은 서버 함수가 정하고, 브라우저가 보낸 `X-Resource-Id` 헤더·`?resource=` 쿼리·본문 값은 읽지 않습니다.
+- `resourceOf(경로)`는 서버가 받은 경로로 자원을 구별합니다(`/api/notes…` → `vault.note`, `/api/notices…` → `class.notice`, 그 밖은 `null`).
+- 기존 자료(Supabase `public.notes`), 주소, 허용 경로, 응답 본문, 화면 메뉴는 바꾸지 않았습니다.
+
+**아직 하지 않은 것**
+
+- 강사 공지는 아직 서버 함수와 자료가 없습니다. ID와 예정 경로(`/api/notices`)만 정했고, 공지 API·자료·화면 메뉴와 자원별 접근 규칙은 이후 요청에서 다룹니다.
+
+**다시 확인하는 방법**: `npm run test:stage8`. 배포 뒤에는 F12 → Network에서 `/api/notes` 요청을 눌러 응답 헤더에 `X-Resource-Id: vault.note`가 있는지 봅니다.
+
 ## 추가: 7단계 제작 3 「다시 로그인 확인」 계약 점검 결과
 
 **계약 확인 결과: 아직 없음**
@@ -32,6 +97,12 @@
 - 가상 사건 시험만 더했습니다(`npm run test:stage7`): 다시 로그인 전에는 읽기·쓰기 모두 `step_up`, 새 로그인 뒤(`stepUp.verified: true`, 0~900초) 새 요청은 다시 판정해 `allow`, 확인 안 됐거나 900초를 넘으면 계속 `step_up`.
 - 자기 점검(`npm run bundle`)에 `step_up_reauth_notes_read`를 **미실행**으로 남깁니다. 실제 자료 차단과 재판정은 계약이 준비된 환경에서만 실측합니다.
 - 토큰 원문은 만들거나 기록하지 않습니다(판정기는 로그를 남기지 않고, 시험이 자기 점검 결과에 토큰 모양이 없는지 확인).
+
+## 고침: `step` 8과 빌드 단계 범위
+
+- `aleph.config.json`의 `step`을 8로 올렸습니다. 배포된 `/aleph.json`도 `"step": 8`로 보입니다.
+- 앞서 `step`만 7로 바꿨을 때 빌드(`scripts/build-public.mjs`)·배포 식별(`scripts/deployment-identity.mjs`)·자기 점검(`src/attack-check.mjs`)이 1~6단계만 받아 빌드가 멈췄습니다. 세 곳 모두 1~8단계를 받도록 넓혔습니다. 9단계 이상은 계속 거부합니다.
+- 자기 점검이 실제로 보내는 요청은 그대로 6건이고, 미등록 기기·다시 로그인 점검은 미실행으로 남습니다.
 
 ## 추가: 7단계 제작 2 「평소와 다른 접속은 다시 확인합니다」(규칙 `step_up_required`)
 

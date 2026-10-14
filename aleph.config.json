@@ -1,5 +1,5 @@
 {
-  "step": 7,
+  "step": 8,
   "repoUrl": "https://github.com/lley01/choi-bujang-secret-vault-2",
   "publicAppUrl": "https://lley01-choi-bujang-secret-vault-git-main-lley01.vercel.app/",
   "sampleMarker": "SAMPLE_NOTE_1",
@@ -10,14 +10,11 @@
     "jwksUrl": "https://iaifwhhyhzyacfdwziuo.supabase.co/auth/v1/.well-known/jwks.json"
   },
   "allowedRoutes": [
-    "GET /api/notes",
-    "POST /api/notes",
     "GET /api/notes/:id",
     "PUT /api/notes/:id",
     "DELETE /api/notes/:id",
-    "GET /api/auth/session",
-    "POST /api/auth/login",
-    "POST /api/auth/logout"
+    "GET /api/notices",
+    "GET /api/notices/:id"
   ],
   "originalApiUrl": "https://iaifwhhyhzyacfdwziuo.supabase.co/rest/v1/notes",
   "restoreRoute": null
