@@ -1,5 +1,6 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
+import { randomUUID } from 'node:crypto';
 import { RULE_IDS } from './decider.mjs';
 async function readJson(url, { headers, method, body } = {}) {
   const response = await fetch(url, {
@@ -112,7 +113,7 @@ export async function runAttackChecks(config) {
     //   거부되지 않더라도 실제 메모는 복원되지 않습니다. 우리 앱이 보낸 JSON 오류 코드일 때만 "거부됨"으로 적습니다.
     // - 정상 요청 2건: 로그인 없이도 열려야 하는 첫 화면과 배포 식별 파일(/aleph.json)을 받아, 복원 뒤에도 앱과 복원 경로가 배포돼 있는지 봅니다.
     // - 로그인 토큰이 필요한 시험(B의 정상 복원, 복원한 메모 읽기, A의 B 메모 복원 거부)은 보내지 않았으므로 미실행으로 남깁니다.
-    const target = new URL(`/api/restore/${crypto.randomUUID()}`, app);
+    const target = new URL(`/api/restore/${randomUUID()}`, app);
     const body = JSON.stringify({ contentSha256: '0'.repeat(64) });
     const restoreTry = (headers, method = 'POST') => readJson(target, { method, headers: { ...json, ...headers }, ...(method === 'POST' ? { body } : {}) });
     const forbidden = [

@@ -6,7 +6,7 @@
 
 ### 검사 기준과 엔진 출처
 
-- **검사한 상태**: 원격 커밋 `8676a1d`(step 11 commit)에 12단계 패치 네 개(`step12-step-range`, `step12-ops-room`, `step12-stage-matrix`, `step12-stage-matrix-windows-fix`)를 적용한 상태입니다. 이 상태에서 로컬 시험 219개가 통과했습니다(Linux, Node 22). 이 상태로 커밋하면 그 커밋이 이 안내의 기준입니다. 커밋 SHA는 `git log -1 --format=%H`로 보고, 배포된 `/aleph.json`의 `commit`과 같은지 대조합니다.
+- **검사 기준 커밋**: `864644ab70a070d1bbb2386a92e51bba2b70a0d3` (`git log -1 --format=%H` 결과). 운영 안내는 이 커밋의 코드를 기준으로 썼고, 그 뒤 커밋은 `src/attack-check.mjs`의 `node:crypto` `randomUUID` 가져오기와 이 줄 수정입니다. 시험·`npm run bundle` 결과는 실제로 실행한 것만 인정합니다. 배포된 `/aleph.json`의 `commit`이 지금 `git log -1 --format=%H`와 같은지 대조합니다.
 - 실제 배포 주소, 실제 Supabase, 심판 환경에서는 이 상태를 실행하지 않았습니다(미실행). 배포 뒤 결과는 `npm run matrix -- --send`로 직접 확인합니다(위 「1~11단계 정상·금지 요청 대조표」).
 - **엔진**: 접속 판정과 탐지 사건 전달·회수 집행은 운영 측이 제공하는 **ALEPH SDP 엔진**(반 엔진)을 사용합니다. 이 저장소는 엔진 코드를 포함하지 않으며 학생이 엔진을 설치하거나 실행하지 않습니다. 학생 코드는 엔진이 부르는 판정기(`src/decider.mjs`)와 탐지 규칙(`src/detect.mjs`)뿐입니다.
   - 계약 출처: `docs/DECIDER_REQUEST.md`는 엔진의 `student-kit/sdp-core/decision-contract.mjs`(`aleph.decision.v1`, 이 저장소에는 없음)를 설명합니다. 탐지 사건 모양은 `docs/DETECT_EVENTS.md`(로컬 연습 계약)입니다.
