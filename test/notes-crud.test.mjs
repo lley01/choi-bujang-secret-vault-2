@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createNotesService } from '../src/notes-service.mjs';
-import { FAKE_ENV, createFakeStore, fakeResponse, withCapturedErrors } from './helpers/fakes.mjs';
+import { FAKE_ENV, createFakeStore, fakeResponse, withCapturedErrors, APPROVED_DEVICE } from './helpers/fakes.mjs';
 import { judgeToken, loginConfig, loginOptions, studentToken } from './helpers/login-fixtures.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
@@ -12,7 +12,7 @@ const withB = async () => ({ authorization: `Bearer ${await judgeToken({ sub: B_
 
 function setup(rows = []) {
   const store = createFakeStore(rows);
-  const service = createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, loginConfig, loginOptions });
+  const service = createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, loginConfig, loginOptions, checkDevice: APPROVED_DEVICE });
   return { store, service };
 }
 
@@ -223,7 +223,7 @@ test('수정 결과로 돌아온 행의 주인이 본인이 아니면 내용 없
 test('검사기가 대문자 UUID를 돌려줘도 소문자로 맞춰 본인 메모를 찾는다', async () => {
   const store = createFakeStore();
   const service = createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, loginConfig,
-    verifyLogin: async () => ({ kind: 'student', userId: A_ID.toUpperCase() }) });
+    verifyLogin: async () => ({ kind: 'student', userId: A_ID.toUpperCase() }), checkDevice: APPROVED_DEVICE });
   const headers = { authorization: 'Bearer stub' };
   const { body: { id } } = await post(service, headers, { title: 't', body: 'b' });
   assert.equal(store.rows[0].owner_id, A_ID);

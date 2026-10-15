@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createNotesService } from '../src/notes-service.mjs';
 import { createLoginVerifier } from '../src/verify-login.mjs';
-import { FAKE_ENV, createFakeStore, fakeResponse, withCapturedErrors } from './helpers/fakes.mjs';
+import { FAKE_ENV, createFakeStore, fakeResponse, withCapturedErrors, APPROVED_DEVICE } from './helpers/fakes.mjs';
 import { judgeKeySet, judgeToken, loginConfig, loginOptions, now, otherKeys, studentToken, supabaseClient } from './helpers/login-fixtures.mjs';
 
 // 이 파일은 로그인 토큰 검사(시작 틀의 src/verify-login.mjs)가 메모 API 앞에서 제대로 일하는지 봅니다.
@@ -14,7 +14,7 @@ const OTHER = { id: crypto.randomUUID(), owner_id: crypto.randomUUID(), title: '
 
 function setup(extra = {}) {
   const store = createFakeStore([OWN, OTHER]);
-  const service = createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, loginConfig, loginOptions, ...extra });
+  const service = createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, loginConfig, loginOptions, checkDevice: APPROVED_DEVICE, ...extra });
   return { store, service };
 }
 

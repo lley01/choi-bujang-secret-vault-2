@@ -1,0 +1,16 @@
+{
+  "name": "BYTE BACK 내 자료실",
+  "short_name": "내 자료실",
+  "description": "실습용 가상 메모 자료실. 설치는 바로가기일 뿐이며, 로그인과 기기 승인은 따로 확인합니다.",
+  "lang": "ko",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#101a28",
+  "theme_color": "#101a28",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

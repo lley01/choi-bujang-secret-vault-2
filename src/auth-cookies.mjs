@@ -34,4 +34,5 @@ export function sessionCookies(session) {
   ];
 }
 
-export const clearedCookies = () => [cookie(ACCESS_COOKIE, '', '/api', 0), cookie(REFRESH_COOKIE, '', '/api/auth', 0)];
+// 로그아웃하면 11단계 기기 세션(aleph_dev)도 함께 지웁니다. 기기 승인 자체(서버의 user_devices)는 그대로입니다.
+export const clearedCookies = () => [cookie(ACCESS_COOKIE, '', '/api', 0), cookie(REFRESH_COOKIE, '', '/api/auth', 0), cookie('aleph_dev', '', '/api', 0)];

@@ -419,16 +419,16 @@ test('자기 점검: 거부되지 않거나 앱이 아닌 곳이 막았거나 �
 });
 
 // 10단계로 올림: 설정·빌드·배포 식별·자기 점검이 10단계를 받고, /aleph.json에 restoreRoute가 실린다.
-test('설정은 10단계이고, 실제 빌드(Vercel 흉내)가 만든 /aleph.json에 step 10과 restoreRoute가 실린다', () => {
+test('설정은 10단계 이상이고, 실제 빌드(Vercel 흉내)가 만든 /aleph.json에 설정 단계와 restoreRoute가 실린다', () => {
   const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
-  assert.equal(config.step, 10);
+  assert.ok(config.step >= 10);
   const output = new URL('../public/aleph.json', import.meta.url);
   try {
     execFileSync(process.execPath, ['scripts/build-public.mjs'], { cwd: root, stdio: 'pipe', env: { ...process.env,
       VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
       VERCEL_GIT_COMMIT_SHA: 'd'.repeat(40), VERCEL_URL: 'defense-app-jkl012.vercel.app' } });
     const written = JSON.parse(readFileSync(output, 'utf8'));
-    assert.equal(written.step, 10);
+    assert.equal(written.step, config.step);
     assert.equal(written.restoreRoute, 'POST /api/restore/:id');
     assert.deepEqual(written.allowedRoutes, config.allowedRoutes);
     assert.equal(written.originalApiUrl, config.originalApiUrl);
@@ -437,7 +437,7 @@ test('설정은 10단계이고, 실제 빌드(Vercel 흉내)가 만든 /aleph.js
   }
 });
 
-test('배포 식별: 10단계부터 restoreRoute가 없거나 형식이 틀리거나 허용 경로에 없으면 빌드를 멈추고, 9단계 이하는 싣지 않으며, 11단계는 거부한다', async () => {
+test('배포 식별: 10단계부터 restoreRoute가 없거나 형식이 틀리거나 허용 경로에 없으면 빌드를 멈추고, 9단계 이하는 싣지 않으며, 12단계는 거부한다', async () => {
   const { deploymentIdentity } = await import('../scripts/deployment-identity.mjs');
   const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
   const env = { VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
@@ -447,9 +447,9 @@ test('배포 식별: 10단계부터 restoreRoute가 없거나 형식이 틀리�
   for (const restoreRoute of [null, undefined, '', '/api/restore/:id', 'POST /api/restore/:id?x=1', 'POST /api/other/:id']) {
     assert.throws(() => deploymentIdentity(env, { ...config, restoreRoute }), /restoreRoute/u, String(restoreRoute));
   }
-  assert.throws(() => deploymentIdentity(env, { ...config, step: 11 }), /배포 식별 정보를 확인할 수 없습니다/u);
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 12 }), /배포 식별 정보를 확인할 수 없습니다/u);
   const { runAttackChecks } = await import('../src/attack-check.mjs');
-  await assert.rejects(runAttackChecks({ ...config, step: 11, publicAppUrl: 'https://student-defense.vercel.app/' }), /이 단계의 공격 점검/u);
+  await assert.rejects(runAttackChecks({ ...config, step: 12, publicAppUrl: 'https://student-defense.vercel.app/' }), /이 단계의 공격 점검/u);
 });
 
 test('자기 점검: 10단계에서는 배포된 /aleph.json의 restoreRoute가 설정과 다르면 정상으로 적지 않는다', async () => {

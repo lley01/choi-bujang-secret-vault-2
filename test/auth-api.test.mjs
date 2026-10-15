@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createAuthService } from '../src/auth-service.mjs';
 import { createNotesService } from '../src/notes-service.mjs';
-import { FAKE_ENV, createFakeStore, fakeResponse, withCapturedErrors } from './helpers/fakes.mjs';
+import { FAKE_ENV, createFakeStore, fakeResponse, withCapturedErrors, APPROVED_DEVICE } from './helpers/fakes.mjs';
 import { judgeToken, loginConfig, loginOptions } from './helpers/login-fixtures.mjs';
 
 // 아래 값은 모두 시험용 가짜 값입니다. 실제 키·토큰·비밀번호를 넣지 마세요.
@@ -108,7 +108,7 @@ test('세션 확인: 유효한 쿠키면 이메일, 만료되면 갱신 쿠키�
   const gone = await call(auth.route, { method: 'GET', url: '/api/auth/session', headers: { cookie: 'aleph_at=expired.token.x; aleph_rt=unknown' } });
   assert.equal(gone.status, 401);
   assert.equal(gone.body.error, 'LOGIN_REQUIRED');
-  for (const cookie of gone.headers.get('set-cookie')) assert.match(cookie, /^aleph_(?:at|rt)=; .*Max-Age=0/u);
+  for (const cookie of gone.headers.get('set-cookie')) assert.match(cookie, /^aleph_(?:at|rt|dev)=; .*Max-Age=0/u);
 
   const before = calls.clients.length;
   const none = await call(auth.route, { method: 'GET', url: '/api/auth/session', headers: {} });
@@ -127,7 +127,7 @@ test('로그아웃: 서버에서 이 세션을 끊고(local) 쿠키를 지운다
   const failing = fakeSupabaseAuth({ signOut: () => { throw new Error(ACCESS); } });
   const out2 = await call(createAuthService({ env: FAKE_ENV, createSupabase: failing.createSupabase }).route, { method: 'POST', url: '/api/auth/logout', headers: { cookie: `aleph_at=${ACCESS}` } });
   assert.equal(out2.status, 204);
-  assert.equal(out2.headers.get('set-cookie').length, 2);
+  assert.equal(out2.headers.get('set-cookie').length, 3, '로그인 쿠키 2개와 11단계 기기 세션 쿠키를 지움');
   assert.ok(!JSON.stringify(out2.logs).includes(ACCESS));
   const cross = await call(createAuthService({ env: FAKE_ENV, createSupabase }).route, { method: 'POST', url: '/api/auth/logout', headers: { origin: 'https://evil.example' } });
   assert.equal(cross.status, 403);
@@ -150,7 +150,7 @@ test('쿠키에 이상한 글자가 섞이면 토큰으로 쓰지 않는다', as
 const A_ID = crypto.randomUUID();
 function notes() {
   const store = createFakeStore([{ id: crypto.randomUUID(), owner_id: A_ID, title: 'A의 메모', content: '실습용 가상', created_at: 1 }]);
-  return { store, service: createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, loginConfig, loginOptions }) };
+  return { store, service: createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, loginConfig, loginOptions, checkDevice: APPROVED_DEVICE }) };
 }
 
 test('메모 API: Authorization 헤더가 없으면 HttpOnly 쿠키의 토큰을 같은 검사기로 검사해 본인 메모를 준다', async () => {

@@ -1,6 +1,10 @@
 // 시험 전용 가짜 도구입니다. 실제 URL이나 키를 넣지 마세요.
 export const FAKE_ENV = { SUPABASE_URL: 'https://dummy-project.example', SUPABASE_SECRET_KEY: 'dummy-server-key' };
 
+// 11단계부터 화면(학생 로그인)으로 온 메모 요청은 서버가 승인한 기기 세션이 있어야 합니다.
+// 예전 단계 시험은 로그인·소유자 검사만 보려는 것이므로, 「이미 승인된 기기」 상태를 명시적으로 넣어 줍니다. 기기 확인 자체는 test/stage11 에서 시험합니다.
+export const APPROVED_DEVICE = async () => ({ ok: true, deviceId: '00000000000000aa' });
+
 export function fakeResponse() {
   const out = { headers: new Map(), status: undefined, body: undefined, ended: false };
   const response = {

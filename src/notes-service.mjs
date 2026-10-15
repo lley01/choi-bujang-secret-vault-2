@@ -14,6 +14,7 @@ import { createLoginVerifier } from './verify-login.mjs';
 import { bearerFromCookie } from './auth-cookies.mjs';
 import { RESOURCE_HEADER, RESOURCES } from './resources.mjs';
 import { checkAccess } from './access-check.mjs';
+import { createDeviceChecker } from './device-service.mjs';
 
 const MAX_LIST = 100;
 const MAX_TITLE = 200;
@@ -28,6 +29,7 @@ const safeCode = (error) => (typeof error?.message === 'string' && /^[a-z_]{1,60
 // 로그인 없이(또는 검사에 실패한 토큰으로) 요청하면 401과 이 JSON을 돌려줍니다.
 // 403이 아니라 401인 이유: 401은 '로그인이 안 됐다', 403은 '로그인은 했지만 권한이 없다'입니다. 403은 4단계의 소유자 검사에 남겨 둡니다.
 // error는 바뀌지 않는 코드, message는 사람이 읽는 설명입니다.
+const DEVICE_REQUIRED_MESSAGE = '이 기기는 아직 서버에서 승인된 기기로 확인되지 않았습니다. 「앱·기기 상태」에서 승인을 요청하고, 승인된 뒤 「이 기기로 열기」를 누르세요.';
 const LOGIN_REQUIRED_BODY = Object.freeze({
   error: 'LOGIN_REQUIRED',
   message: '로그인이 필요합니다. 유효한 로그인 토큰과 함께 요청해 주세요.',
@@ -62,7 +64,8 @@ function readPathId(request) {
 }
 
 export function createNotesService({ env = process.env, createSupabase = createClient,
-  loginConfig = alephConfig, loginOptions = {}, verifyLogin, generateId = () => crypto.randomUUID() } = {}) {
+  loginConfig = alephConfig, loginOptions = {}, verifyLogin, generateId = () => crypto.randomUUID(),
+  checkDevice = createDeviceChecker({ env }) } = {}) {
   // 검사기는 서버 런타임에서 한 번만 만들고 다시 씁니다. 만들기에 실패하면 저장하지 않고 요청마다 거부합니다.
   let verifier = verifyLogin ?? null;
   const getVerifier = () => {
@@ -121,7 +124,24 @@ export function createNotesService({ env = process.env, createSupabase = createC
       return null;
     }
     // 검사기는 대문자가 섞인 UUID도 통과시킵니다. DB가 돌려주는 uuid(소문자)와 비교할 수 있도록 소문자로 맞춥니다.
-    return { identity, me: identity.userId.toLowerCase(), supabase };
+    const me = identity.userId.toLowerCase();
+    // 11단계 기기 확인: 화면(학생 로그인)으로 온 요청은 서버가 승인한 기기의 세션(aleph_dev)이 있어야 자료를 줍니다.
+    // 기기 세션은 승인된 기기가 서버 챌린지에 서명했을 때만 생기고, 요청마다 DB에서 지금도 승인 상태인지 다시 확인합니다.
+    // 심판 토큰(kind 'judge')의 요청은 반 엔진이 기기 등록을 먼저 확인하고 넘기므로(판정기 device_registered) 여기서 다시 묻지 않습니다.
+    if (identity.kind !== 'judge') {
+      let gate;
+      try {
+        gate = await checkDevice(request, me, supabase);
+      } catch {
+        gate = { ok: false, reason: 'device_check_failed' };
+      }
+      if (!gate?.ok) {
+        console.warn('NOTES_DEVICE_REQUIRED', JSON.stringify({ method: request.method, route, reason: gate?.reason ?? 'unknown' }));
+        response.status(403).json({ error: 'DEVICE_NOT_APPROVED', message: DEVICE_REQUIRED_MESSAGE });
+        return null;
+      }
+    }
+    return { identity, me, supabase };
   }
 
   // 8단계 제작 3: DB 질의가 owner_id로 걸렀더라도, 돌아온 행의 저장된 소유자를 검증된 사용자와 한 번 더 대조합니다.

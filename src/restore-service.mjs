@@ -11,6 +11,7 @@ import alephConfig from '../aleph.config.json' with { type: 'json' };
 import { createLoginVerifier } from './verify-login.mjs';
 import { bearerFromCookie } from './auth-cookies.mjs';
 import { RESOURCE_HEADER, RESOURCES } from './resources.mjs';
+import { createDeviceChecker } from './device-service.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const SHA256 = /^[0-9a-f]{64}$/u;
@@ -49,7 +50,7 @@ function crossSite(request) {
 }
 
 export function createRestoreService({ env = process.env, createSupabase = createClient,
-  loginConfig = alephConfig, loginOptions = {}, verifyLogin } = {}) {
+  loginConfig = alephConfig, loginOptions = {}, verifyLogin, checkDevice = createDeviceChecker({ env }) } = {}) {
   let verifier = verifyLogin ?? null;
   const getVerifier = () => {
     verifier ??= createLoginVerifier({ config: loginConfig, supabaseSecretKey: env.SUPABASE_SECRET_KEY, ...loginOptions });
@@ -102,6 +103,14 @@ export function createRestoreService({ env = process.env, createSupabase = creat
     let outcome;
     try {
       const supabase = createSupabase(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+      // 11단계: 화면(학생 로그인)으로 온 복원 요청도 서버가 승인한 기기 세션이 있어야 합니다(심판 토큰은 반 엔진이 기기를 확인).
+      if (identity.kind !== 'judge') {
+        const gate = await checkDevice(request, identity.userId.toLowerCase(), supabase).catch(() => ({ ok: false, reason: 'device_check_failed' }));
+        if (!gate?.ok) {
+          denied(gate?.reason ?? 'device_unknown');
+          return fail(response, 403, 'DEVICE_NOT_APPROVED');
+        }
+      }
       const { data, error } = await supabase.rpc('restore_note_from_backup', {
         p_note_id: id, p_owner_id: identity.userId.toLowerCase(), p_content_sha256: input.contentSha256,
       });

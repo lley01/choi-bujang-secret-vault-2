@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createNotesService } from '../src/notes-service.mjs';
 import { runAttackChecks } from '../src/attack-check.mjs';
-import { FAKE_ENV, createFakeStore, fakeResponse, withCapturedErrors } from './helpers/fakes.mjs';
+import { FAKE_ENV, createFakeStore, fakeResponse, withCapturedErrors, APPROVED_DEVICE } from './helpers/fakes.mjs';
 
 // 이 파일은 자료 조회 경로만 봅니다. 로그인 토큰 검사는 test/login-api.test.mjs, 추가·수정·삭제는 test/notes-crud.test.mjs 가 봅니다.
 const USER_ID = '00000000-0000-4000-8000-000000000001';
@@ -16,7 +16,7 @@ async function call(handler, request) {
 }
 
 test('/api/notes는 GET·POST만 받고 캐시하지 않는다', async () => {
-  const service = createNotesService({ env: FAKE_ENV, createSupabase: createFakeStore().createSupabase, verifyLogin: loggedIn });
+  const service = createNotesService({ env: FAKE_ENV, createSupabase: createFakeStore().createSupabase, verifyLogin: loggedIn, checkDevice: APPROVED_DEVICE });
   const { out } = await call(service.collection, { method: 'PATCH' });
   assert.equal(out.status, 405);
   assert.equal(out.headers.get('allow'), 'GET, POST');
@@ -26,7 +26,7 @@ test('/api/notes는 GET·POST만 받고 캐시하지 않는다', async () => {
 test('/api/notes는 환경변수가 없으면 키 값 없이 500으로 거절한다', async () => {
   for (const env of [{}, { SUPABASE_URL: FAKE_ENV.SUPABASE_URL }, { SUPABASE_SECRET_KEY: FAKE_ENV.SUPABASE_SECRET_KEY }]) {
     let called = false;
-    const service = createNotesService({ env, createSupabase: () => { called = true; }, verifyLogin: loggedIn });
+    const service = createNotesService({ env, createSupabase: () => { called = true; }, verifyLogin: loggedIn, checkDevice: APPROVED_DEVICE });
     const { out, logs } = await call(service.collection, {});
     assert.equal(out.status, 500);
     assert.equal(out.body.error, 'SERVER_NOT_CONFIGURED');
@@ -40,7 +40,7 @@ test('/api/notes 목록은 id·title·body만 돌려주고 키를 응답·로그
     { id: crypto.randomUUID(), owner_id: USER_ID, title: '과제', content: '실습용 가상 과제 기록', created_at: 1 },
     { id: crypto.randomUUID(), owner_id: USER_ID, title: '포트폴리오', content: '실습용 가상 포트폴리오 기록', created_at: 2 },
   ]);
-  const service = createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, verifyLogin: loggedIn });
+  const service = createNotesService({ env: FAKE_ENV, createSupabase: store.createSupabase, verifyLogin: loggedIn, checkDevice: APPROVED_DEVICE });
   const { out, logs } = await call(service.collection, {});
   assert.equal(out.status, 200);
   assert.deepEqual(out.body.map(({ title, body }) => ({ title, body })), [
@@ -62,7 +62,7 @@ test('/api/notes는 Supabase 오류 때 오류 코드만 기록하고 500으로 
     return { from: () => query };
   };
   for (const createSupabase of [failing, () => { throw new Error(FAKE_ENV.SUPABASE_SECRET_KEY); }]) {
-    const service = createNotesService({ env: FAKE_ENV, createSupabase, verifyLogin: loggedIn });
+    const service = createNotesService({ env: FAKE_ENV, createSupabase, verifyLogin: loggedIn, checkDevice: APPROVED_DEVICE });
     const { out, logs } = await call(service.collection, {});
     assert.equal(out.status, 500);
     assert.equal(out.body.error, 'NOTES_UNAVAILABLE');

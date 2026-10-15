@@ -8,13 +8,13 @@ import { deploymentIdentity } from '../scripts/deployment-identity.mjs';
 const AT = '2026-10-01T00:00:00.000Z';
 const event = (extra = {}) => ({ at: AT, method: 'GET', identity: { sub: 'learner_fixture' }, ...extra });
 
-test('설정은 9단계 이상이고 빌드·배포 식별이 9단계를 받으며 11단계는 거부한다', () => {
+test('설정은 9단계 이상이고 빌드·배포 식별이 9단계를 받으며 12단계는 거부한다', () => {
   const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
   assert.ok(config.step >= 9);
   const env = { VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
     VERCEL_GIT_COMMIT_SHA: 'c'.repeat(40), VERCEL_URL: 'defense-app-ghi789.vercel.app' };
   assert.equal(deploymentIdentity(env, { ...config, step: 9 }).step, 9);
-  assert.throws(() => deploymentIdentity(env, { ...config, step: 11 }), /배포 식별 정보를 확인할 수 없습니다/u);
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 12 }), /배포 식별 정보를 확인할 수 없습니다/u);
 });
 
 test('가명 사용자·기기·요청 종류·판정(과 시각, 9단계 제작 2의 네트워크)만 읽는다', () => {

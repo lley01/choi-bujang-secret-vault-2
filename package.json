@@ -19,6 +19,7 @@
     "test:stage8": "node --test test/stage8.test.mjs",
     "test:stage9": "node --test test/stage9.test.mjs",
     "test:stage10": "node --test test/stage10.test.mjs",
+    "test:stage11": "node --test test/stage11.test.mjs test/stage11-device.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "decider:show": "node scripts/decider-show.mjs",
