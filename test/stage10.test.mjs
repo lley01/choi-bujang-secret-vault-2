@@ -349,3 +349,70 @@ test('서비스 restore·경로 POST /api/restore/:id: 설정·허용 경로·�
   assert.equal(resourceOf(`/api/restore/${NOTE}`), 'vault.note');
   assert.equal(resourceOf('/api/restore'), null);
 });
+
+// 10단계 고침: 복원 뒤 다시 시험. 자기 점검은 실제로 보낸 요청의 응답만 결과로 적고, 보내지 않은 시험은 미실행으로 남긴다.
+async function selfCheck(respond) {
+  const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
+  const { runAttackChecks } = await import('../src/attack-check.mjs');
+  const original = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const { pathname } = new URL(String(url));
+    sent.push({ pathname, method: init.method ?? 'GET', headers: init.headers ?? {}, body: init.body });
+    return respond(pathname, init);
+  };
+  try {
+    return { results: await runAttackChecks({ ...config, publicAppUrl: 'https://student-defense.vercel.app/' }), sent, config };
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+const appLike = (pathname, init) => {
+  const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  if (pathname === '/') return new Response('<!doctype html><title>BYTE BACK | 점령된 자료실</title>', { status: 200, headers: { 'content-type': 'text/html' } });
+  if (pathname === '/aleph.json') return json(200, { step: 9, allowedRoutes: ['GET /api/notes/:id', 'POST /api/restore/:id'] });
+  if (pathname === '/data.json') return new Response('not found', { status: 404 });
+  if (pathname.startsWith('/api/restore/')) {
+    const headers = init.headers ?? {};
+    if ((init.method ?? 'GET') !== 'POST') return json(405, { error: 'METHOD_NOT_ALLOWED' });
+    if (headers.Origin) return json(403, { error: 'CROSS_SITE_REQUEST' });
+    return json(401, { error: 'LOGIN_REQUIRED', message: '로그인이 필요합니다.' });
+  }
+  return json(401, { error: 'LOGIN_REQUIRED' });
+};
+
+test('자기 점검: 복원 뒤 금지 요청 4건과 정상 요청 2건을 실제로 보내고, 받은 응답대로 적는다', async () => {
+  const { results, sent } = await selfCheck(appLike);
+  const restoreSent = sent.filter((item) => item.pathname.startsWith('/api/restore/'));
+  assert.equal(restoreSent.length, 4, '복원 경로에 금지 요청 4건');
+  assert.ok(restoreSent.every((item) => /^\/api\/restore\/[0-9a-f-]{36}$/u.test(item.pathname)), '무작위 메모 ID');
+  assert.ok(restoreSent.filter((item) => item.body).every((item) => JSON.parse(item.body).contentSha256 === '0'.repeat(64)), '실제 사본 해시를 쓰지 않음');
+  assert.ok(sent.some((item) => item.pathname === '/') && sent.some((item) => item.pathname === '/aleph.json'), '정상 요청 2건');
+  const byId = Object.fromEntries(results.map((item) => [item.attackId, item.observed]));
+  assert.equal(byId.restore_anonymous_after_restore, '토큰 없이 POST /api/restore/:id이 거부됨 (HTTP 401 LOGIN_REQUIRED)');
+  assert.equal(byId.restore_forged_token_after_restore, '엉터리 토큰으로 POST /api/restore/:id이 거부됨 (HTTP 401 LOGIN_REQUIRED)');
+  assert.equal(byId.restore_cross_site_after_restore, '다른 사이트 Origin으로 POST /api/restore/:id이 거부됨 (HTTP 403 CROSS_SITE_REQUEST)');
+  assert.equal(byId.restore_wrong_method_after_restore, 'GET /api/restore/:id이 거부됨 (HTTP 405 METHOD_NOT_ALLOWED)');
+  assert.equal(byId.normal_screen_after_restore, '첫 화면이 열림 (HTTP 200, 자료실 화면 제목 확인)');
+  assert.equal(byId.normal_identity_after_restore, '/aleph.json에 step 9과 복원 경로가 실림 (HTTP 200)');
+  assert.match(byId.restore_owner_flow_needs_login, /^미실행: /u, '토큰이 필요한 시험은 보내지 않았으므로 미실행');
+  assert.ok(!('restore_other_owner_note' in byId), '예전의 미실행 항목은 실제 요청 항목으로 바뀜');
+  assert.ok(results.length <= 20 && new Set(results.map((item) => item.attackId)).size === results.length);
+  assert.ok(results.every((item) => item.observed.length <= 300 && item.expected.length <= 300));
+});
+
+test('자기 점검: 거부되지 않거나 앱이 아닌 곳이 막았거나 배포가 다르면 그대로 적는다(성공으로 바꾸지 않음)', async () => {
+  const leaky = await selfCheck((pathname, init) => (pathname.startsWith('/api/restore/')
+    ? new Response(JSON.stringify({ id: 'x', restored: true }), { status: 200 }) : appLike(pathname, init)));
+  const leakyIds = Object.fromEntries(leaky.results.map((item) => [item.attackId, item.observed]));
+  assert.equal(leakyIds.restore_anonymous_after_restore, '토큰 없이 POST /api/restore/:id이 예상대로 거부되지 않음 (HTTP 200)');
+  const proxy = await selfCheck((pathname, init) => (pathname.startsWith('/api/restore/') ? new Response('blocked', { status: 403 }) : appLike(pathname, init)));
+  assert.match(Object.fromEntries(proxy.results.map((item) => [item.attackId, item.observed])).restore_anonymous_after_restore, /판정 불가/u);
+  const stale = await selfCheck((pathname, init) => (pathname === '/aleph.json' ? new Response(JSON.stringify({ step: 8, allowedRoutes: [] }), { status: 200 })
+    : pathname === '/' ? new Response('vercel login', { status: 401 }) : appLike(pathname, init)));
+  const staleIds = Object.fromEntries(stale.results.map((item) => [item.attackId, item.observed]));
+  assert.equal(staleIds.normal_identity_after_restore, '/aleph.json이 현재 설정과 다름 (HTTP 200, step 8)');
+  assert.equal(staleIds.normal_screen_after_restore, '첫 화면이 자료실 화면이 아님 (HTTP 401)');
+  const down = await selfCheck(() => { throw new TypeError('fetch failed'); }).catch((error) => error);
+  assert.ok(down instanceof Error, '네트워크가 아예 안 되면 점검이 실패로 끝나고 결과를 지어내지 않음');
+});

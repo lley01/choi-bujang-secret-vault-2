@@ -218,7 +218,7 @@ test('자기 점검: 실제 회수와 시간은 심판이 확인하므로 요청
   globalThis.fetch = async (url) => { sent += 1; return String(url).endsWith('/data.json') ? new Response('not found', { status: 404 })
     : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401 }); };
   try {
-    const results = await runAttackChecks({ ...config, publicAppUrl: 'https://student-defense.vercel.app/' });
+    const results = await runAttackChecks({ ...config, restoreRoute: null, publicAppUrl: 'https://student-defense.vercel.app/' }); // 10단계 복원 점검은 stage10에서 따로 시험
     assert.equal(sent, 6);
     const item = results.find((entry) => entry.attackId === 'doppelganger_device_revocation');
     assert.match(item.observed, /^미실행: 실제 회수와 걸린 시간은 심판이 확인함/u);

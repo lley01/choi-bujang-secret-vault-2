@@ -115,9 +115,47 @@ export async function runAttackChecks(config) {
       observed: '미실행: 실제 회수와 걸린 시간은 심판이 확인함(탐지 제안만 npm run test:stage9로 시험, 이 점검에서는 요청을 보내지 않음)' });
   }
   if (config.step >= 9 && config.restoreRoute === 'POST /api/restore/:id') {
-    // 10단계: 복원은 로그인 토큰과 사본의 내용 해시가 필요해 이 점검에서는 보내지 않습니다(시험 계정 B로 직접 확인, README 참고).
-    results.push({ attackId: 'restore_other_owner_note', expected: '다른 사람(A)이 B의 메모 사본 복원을 요청하면 404로 거부하고 B의 메모·다른 메모·감사 기록은 그대로',
-      observed: '미실행: 로그인 토큰과 사본 해시가 필요해 이 점검에서는 요청을 보내지 않음(가짜 DB로 npm run test:stage10 시험)' });
+    // 10단계: 복원 뒤 다시 시험합니다. 이 점검은 복원을 마친 배포 주소에 실제로 요청을 보내고, 받은 응답만 결과로 적습니다.
+    // - 금지 요청 4건: 토큰 없이·엉터리 토큰·다른 사이트 Origin·GET 으로 복원 경로를 부릅니다. 무작위 메모 ID와 0으로 채운 해시를 쓰므로
+    //   거부되지 않더라도 실제 메모는 복원되지 않습니다. 우리 앱이 보낸 JSON 오류 코드일 때만 "거부됨"으로 적습니다.
+    // - 정상 요청 2건: 로그인 없이도 열려야 하는 첫 화면과 배포 식별 파일(/aleph.json)을 받아, 복원 뒤에도 앱과 복원 경로가 배포돼 있는지 봅니다.
+    // - 로그인 토큰이 필요한 시험(B의 정상 복원, 복원한 메모 읽기, A의 B 메모 복원 거부)은 보내지 않았으므로 미실행으로 남깁니다.
+    const target = new URL(`/api/restore/${crypto.randomUUID()}`, app);
+    const body = JSON.stringify({ contentSha256: '0'.repeat(64) });
+    const restoreTry = (headers, method = 'POST') => readJson(target, { method, headers: { ...json, ...headers }, ...(method === 'POST' ? { body } : {}) });
+    const forbidden = [
+      ['restore_anonymous_after_restore', '토큰 없이 POST /api/restore/:id', await restoreTry({}), 401, 'LOGIN_REQUIRED'],
+      ['restore_forged_token_after_restore', '엉터리 토큰으로 POST /api/restore/:id', await restoreTry({ Authorization: 'Bearer aaaaaaaa.bbbbbbbb.cccccccc' }), 401, 'LOGIN_REQUIRED'],
+      ['restore_cross_site_after_restore', '다른 사이트 Origin으로 POST /api/restore/:id', await restoreTry({ Origin: 'https://attacker.invalid' }), 403, 'CROSS_SITE_REQUEST'],
+      ['restore_wrong_method_after_restore', 'GET /api/restore/:id', await restoreTry({}, 'GET'), 405, 'METHOD_NOT_ALLOWED'],
+    ];
+    for (const [attackId, label, result, status, error] of forbidden) {
+      const ours = result.status === status && result.data?.error === error;
+      results.push({ attackId, expected: `복원 뒤 ${label}을 보내면 ${status} ${error}로 거부되고 아무것도 복원되지 않음`,
+        observed: ours ? `${label}이 거부됨 (HTTP ${result.status} ${error})`
+          : (result.status === 401 || result.status === 403) && !result.data?.error ? `${label}: ${elsewhere(result)}`
+            : `${label}이 예상대로 거부되지 않음 (HTTP ${result.status}${typeof result.data?.error === 'string' ? ` ${result.data.error.slice(0, 40)}` : ''})` });
+    }
+    let screen = 0;
+    try {
+      const response = await fetch(new URL('/', app), { redirect: 'error', signal: AbortSignal.timeout(10000) });
+      screen = response.status;
+      const text = await response.text();
+      screen = response.ok && text.includes('<title>BYTE BACK') ? 200 : -response.status;
+    } catch {
+      screen = 0;
+    }
+    results.push({ attackId: 'normal_screen_after_restore', expected: '복원 뒤 로그인 없이 첫 화면(/)을 열면 200과 자료실 화면이 옴',
+      observed: screen === 200 ? '첫 화면이 열림 (HTTP 200, 자료실 화면 제목 확인)'
+        : screen === 0 ? '첫 화면 요청 실패(네트워크 오류)' : `첫 화면이 자료실 화면이 아님 (HTTP ${Math.abs(screen)})` });
+    const identity = await readJson(new URL('/aleph.json', app));
+    const deployed = identity.status === 200 && identity.data?.step === config.step
+      && Array.isArray(identity.data?.allowedRoutes) && identity.data.allowedRoutes.includes('POST /api/restore/:id');
+    results.push({ attackId: 'normal_identity_after_restore', expected: '복원 뒤 /aleph.json에 현재 단계와 복원 경로(POST /api/restore/:id)가 실림',
+      observed: deployed ? `/aleph.json에 step ${identity.data.step}과 복원 경로가 실림 (HTTP 200)`
+        : `/aleph.json이 현재 설정과 다름 (HTTP ${identity.status}, step ${typeof identity.data?.step === 'number' ? identity.data.step : '없음'})` });
+    results.push({ attackId: 'restore_owner_flow_needs_login', expected: '시험 계정 B가 자기 메모를 복원하면 200이고, 복원한 메모를 다시 읽으면 사본 내용이며, A가 같은 요청을 보내면 404',
+      observed: '미실행: B·A의 로그인 토큰과 사본 해시가 필요해 이 점검에서는 요청을 보내지 않음(README의 B 계정 확인 순서로 직접 확인)' });
   }
   return results;
 }

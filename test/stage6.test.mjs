@@ -126,7 +126,7 @@ test('6단계 자기 점검: 요청은 6건만 보내고, 미등록 기기 점�
   globalThis.fetch = async (url) => { sent += 1; return String(url).endsWith('/data.json') ? new Response('not found', { status: 404 })
     : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401 }); };
   try {
-    const results = await runAttackChecks({ ...config, publicAppUrl: 'https://student-defense.vercel.app/' });
+    const results = await runAttackChecks({ ...config, restoreRoute: null, publicAppUrl: 'https://student-defense.vercel.app/' }); // 10단계 복원 점검은 stage10에서 따로 시험
     assert.equal(sent, 6);
     const unregistered = results.find((item) => item.attackId === 'unregistered_device_notes_read');
     assert.ok(unregistered, '미등록 기기 점검 항목');

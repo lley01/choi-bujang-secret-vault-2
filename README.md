@@ -56,9 +56,26 @@
 **아직 하지 않은 것**
 
 - 화면 메뉴는 없습니다. 사본은 B의 시험 메모 한 건뿐이고, 사본을 새로 만드는 경로도 없습니다.
-- `step`은 9 그대로입니다. 자기 점검에는 `restore_other_owner_note`를 **미실행**으로 남깁니다(로그인 토큰과 해시가 필요).
+- `step`은 9 그대로입니다.
 
-**다시 확인하는 방법**: `npm run test:stage10` (DB 함수는 가짜로 흉내 냅니다. 실제 SQL은 따로 실행해 확인)
+**복원 뒤 다시 시험(자기 점검, `npm run bundle`)** — (고침) 처음에는 복원 경로에 요청을 하나도 보내지 않고 미실행 한 줄만 적었습니다.
+
+복원을 마치고 배포가 끝난 뒤 `npm run bundle`을 실행하면, 배포 주소에 아래 요청을 **실제로 보내고 받은 응답만** 적습니다.
+
+| 점검 | 보내는 요청 | 거부로 적는 조건 |
+|---|---|---|
+| `restore_anonymous_after_restore` | 토큰 없이 `POST /api/restore/<무작위 ID>` | 401 `LOGIN_REQUIRED` |
+| `restore_forged_token_after_restore` | 엉터리 토큰으로 같은 요청 | 401 `LOGIN_REQUIRED` |
+| `restore_cross_site_after_restore` | 다른 사이트 `Origin`으로 같은 요청 | 403 `CROSS_SITE_REQUEST` |
+| `restore_wrong_method_after_restore` | `GET /api/restore/<무작위 ID>` | 405 `METHOD_NOT_ALLOWED` |
+| `normal_screen_after_restore` (정상) | `GET /` | 200이고 자료실 화면 제목이 보임 |
+| `normal_identity_after_restore` (정상) | `GET /aleph.json` | 200, 현재 `step`, 허용 경로에 `POST /api/restore/:id` |
+
+- 금지 요청은 무작위 메모 ID와 0으로 채운 해시를 써서, 거부되지 않더라도 실제 메모는 복원되지 않습니다. 우리 앱의 JSON 오류 코드일 때만 「거부됨」이고, 앱이 아닌 곳이 막은 401·403은 「판정 불가」, 그 밖은 「예상대로 거부되지 않음」으로 그대로 적습니다.
+- 로그인 토큰이 필요한 시험(B의 정상 복원, 복원한 메모 다시 읽기, A의 B 메모 복원 거부)은 보내지 않았으므로 `restore_owner_flow_needs_login`에 **미실행**으로 남깁니다. 위 「시험 계정 B로만 확인하기」 순서로 직접 확인하고, 그 결과는 `bundle-notes.json`에 직접 적습니다.
+- 점검 결과는 모두 19개입니다(제출 묶음 한도 20개).
+
+**다시 확인하는 방법**: `npm run test:stage10` (DB 함수와 배포 응답은 가짜로 흉내 냅니다. 실제 SQL과 배포는 따로 확인)
 
 ## 추가: 10단계 제작 2 「안전 정책 사본으로 시험 정책 되돌리기」
 
