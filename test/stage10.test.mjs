@@ -44,7 +44,7 @@ test('검증한 사본과의 차이만 보여 준다(같은 항목은 출력하�
   withCopy(text, (path) => {
     const out = cli(path, sha(text));
     assert.equal(out.status, 0, out.stderr);
-    assert.equal(out.stdout, '정책 차이(안전 사본 → 현재 시험 정책, 읽기 전용)\n~ 단계: 8 → 9\n- 규칙 빠짐: old_rule\n- 허용 경로 빠짐: GET /api/notes\n');
+    assert.equal(out.stdout, `정책 차이(안전 사본 → 현재 시험 정책, 읽기 전용)\n~ 단계: 8 → ${JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8')).step}\n- 규칙 빠짐: old_rule\n- 허용 경로 빠짐: GET /api/notes\n`);
     for (const same of ['starter.deny', 'resource_zone', 'GET /api/notices']) assert.ok(!out.stdout.includes(same), `같은 항목 ${same}은 출력 안 함`);
   });
   assert.deepEqual(formatDiff(diffPolicies(SAFE, SAFE)), ['차이 없음']);
@@ -367,10 +367,11 @@ async function selfCheck(respond) {
     globalThis.fetch = original;
   }
 }
+const DEPLOYED_STEP = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8')).step;
 const appLike = (pathname, init) => {
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   if (pathname === '/') return new Response('<!doctype html><title>BYTE BACK | 점령된 자료실</title>', { status: 200, headers: { 'content-type': 'text/html' } });
-  if (pathname === '/aleph.json') return json(200, { step: 9, allowedRoutes: ['GET /api/notes/:id', 'POST /api/restore/:id'] });
+  if (pathname === '/aleph.json') return json(200, { step: DEPLOYED_STEP, allowedRoutes: ['GET /api/notes/:id', 'POST /api/restore/:id'], restoreRoute: 'POST /api/restore/:id' });
   if (pathname === '/data.json') return new Response('not found', { status: 404 });
   if (pathname.startsWith('/api/restore/')) {
     const headers = init.headers ?? {};
@@ -394,7 +395,7 @@ test('자기 점검: 복원 뒤 금지 요청 4건과 정상 요청 2건을 실�
   assert.equal(byId.restore_cross_site_after_restore, '다른 사이트 Origin으로 POST /api/restore/:id이 거부됨 (HTTP 403 CROSS_SITE_REQUEST)');
   assert.equal(byId.restore_wrong_method_after_restore, 'GET /api/restore/:id이 거부됨 (HTTP 405 METHOD_NOT_ALLOWED)');
   assert.equal(byId.normal_screen_after_restore, '첫 화면이 열림 (HTTP 200, 자료실 화면 제목 확인)');
-  assert.equal(byId.normal_identity_after_restore, '/aleph.json에 step 9과 복원 경로가 실림 (HTTP 200)');
+  assert.equal(byId.normal_identity_after_restore, `/aleph.json에 step ${DEPLOYED_STEP}과 복원 경로가 실림 (HTTP 200)`);
   assert.match(byId.restore_owner_flow_needs_login, /^미실행: /u, '토큰이 필요한 시험은 보내지 않았으므로 미실행');
   assert.ok(!('restore_other_owner_note' in byId), '예전의 미실행 항목은 실제 요청 항목으로 바뀜');
   assert.ok(results.length <= 20 && new Set(results.map((item) => item.attackId)).size === results.length);
@@ -415,4 +416,44 @@ test('자기 점검: 거부되지 않거나 앱이 아닌 곳이 막았거나 �
   assert.equal(staleIds.normal_screen_after_restore, '첫 화면이 자료실 화면이 아님 (HTTP 401)');
   const down = await selfCheck(() => { throw new TypeError('fetch failed'); }).catch((error) => error);
   assert.ok(down instanceof Error, '네트워크가 아예 안 되면 점검이 실패로 끝나고 결과를 지어내지 않음');
+});
+
+// 10단계로 올림: 설정·빌드·배포 식별·자기 점검이 10단계를 받고, /aleph.json에 restoreRoute가 실린다.
+test('설정은 10단계이고, 실제 빌드(Vercel 흉내)가 만든 /aleph.json에 step 10과 restoreRoute가 실린다', () => {
+  const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
+  assert.equal(config.step, 10);
+  const output = new URL('../public/aleph.json', import.meta.url);
+  try {
+    execFileSync(process.execPath, ['scripts/build-public.mjs'], { cwd: root, stdio: 'pipe', env: { ...process.env,
+      VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
+      VERCEL_GIT_COMMIT_SHA: 'd'.repeat(40), VERCEL_URL: 'defense-app-jkl012.vercel.app' } });
+    const written = JSON.parse(readFileSync(output, 'utf8'));
+    assert.equal(written.step, 10);
+    assert.equal(written.restoreRoute, 'POST /api/restore/:id');
+    assert.deepEqual(written.allowedRoutes, config.allowedRoutes);
+    assert.equal(written.originalApiUrl, config.originalApiUrl);
+  } finally {
+    rmSync(output, { force: true });
+  }
+});
+
+test('배포 식별: 10단계부터 restoreRoute가 없거나 형식이 틀리거나 허용 경로에 없으면 빌드를 멈추고, 9단계 이하는 싣지 않으며, 11단계는 거부한다', async () => {
+  const { deploymentIdentity } = await import('../scripts/deployment-identity.mjs');
+  const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
+  const env = { VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
+    VERCEL_GIT_COMMIT_SHA: 'd'.repeat(40), VERCEL_URL: 'defense-app-jkl012.vercel.app' };
+  assert.equal(deploymentIdentity(env, config).restoreRoute, 'POST /api/restore/:id');
+  assert.equal('restoreRoute' in deploymentIdentity(env, { ...config, step: 9 }), false, '9단계 이하의 형식은 그대로');
+  for (const restoreRoute of [null, undefined, '', '/api/restore/:id', 'POST /api/restore/:id?x=1', 'POST /api/other/:id']) {
+    assert.throws(() => deploymentIdentity(env, { ...config, restoreRoute }), /restoreRoute/u, String(restoreRoute));
+  }
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 11 }), /배포 식별 정보를 확인할 수 없습니다/u);
+  const { runAttackChecks } = await import('../src/attack-check.mjs');
+  await assert.rejects(runAttackChecks({ ...config, step: 11, publicAppUrl: 'https://student-defense.vercel.app/' }), /이 단계의 공격 점검/u);
+});
+
+test('자기 점검: 10단계에서는 배포된 /aleph.json의 restoreRoute가 설정과 다르면 정상으로 적지 않는다', async () => {
+  const missing = await selfCheck((pathname, init) => (pathname === '/aleph.json'
+    ? new Response(JSON.stringify({ step: DEPLOYED_STEP, allowedRoutes: ['POST /api/restore/:id'] }), { status: 200 }) : appLike(pathname, init)));
+  assert.match(Object.fromEntries(missing.results.map((item) => [item.attackId, item.observed])).normal_identity_after_restore, /현재 설정과 다름/u);
 });

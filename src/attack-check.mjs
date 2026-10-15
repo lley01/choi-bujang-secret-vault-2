@@ -21,7 +21,7 @@ const noteList = (data) => (Array.isArray(data) ? data : data?.notes);
 const hasNotes = (data) => Array.isArray(noteList(data)) && noteList(data).length > 0;
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -149,9 +149,11 @@ export async function runAttackChecks(config) {
       observed: screen === 200 ? '첫 화면이 열림 (HTTP 200, 자료실 화면 제목 확인)'
         : screen === 0 ? '첫 화면 요청 실패(네트워크 오류)' : `첫 화면이 자료실 화면이 아님 (HTTP ${Math.abs(screen)})` });
     const identity = await readJson(new URL('/aleph.json', app));
+    // 10단계부터 /aleph.json에 restoreRoute도 실리므로 함께 확인합니다.
     const deployed = identity.status === 200 && identity.data?.step === config.step
-      && Array.isArray(identity.data?.allowedRoutes) && identity.data.allowedRoutes.includes('POST /api/restore/:id');
-    results.push({ attackId: 'normal_identity_after_restore', expected: '복원 뒤 /aleph.json에 현재 단계와 복원 경로(POST /api/restore/:id)가 실림',
+      && Array.isArray(identity.data?.allowedRoutes) && identity.data.allowedRoutes.includes('POST /api/restore/:id')
+      && (config.step < 10 || identity.data?.restoreRoute === config.restoreRoute);
+    results.push({ attackId: 'normal_identity_after_restore', expected: '복원 뒤 /aleph.json에 현재 단계와 복원 경로(허용 경로, 10단계부터 restoreRoute)가 실림',
       observed: deployed ? `/aleph.json에 step ${identity.data.step}과 복원 경로가 실림 (HTTP 200)`
         : `/aleph.json이 현재 설정과 다름 (HTTP ${identity.status}, step ${typeof identity.data?.step === 'number' ? identity.data.step : '없음'})` });
     results.push({ attackId: 'restore_owner_flow_needs_login', expected: '시험 계정 B가 자기 메모를 복원하면 200이고, 복원한 메모를 다시 읽으면 사본 내용이며, A가 같은 요청을 보내면 404',

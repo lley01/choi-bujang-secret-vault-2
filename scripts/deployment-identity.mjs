@@ -29,7 +29,7 @@ export function deploymentIdentity(env, config) {
   if (env.VERCEL_GIT_PROVIDER !== 'github' || !OWNER.test(owner || '')
       || !REPO.test(repo || '') || repo === '.' || repo === '..'
       || repo.toLowerCase().endsWith('.git') || !SHA.test(commit || '')
-      || !HOST.test(host || '') || ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config?.step)
+      || !HOST.test(host || '') || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(config?.step)
       || typeof config.judgeIssuer !== 'string'
       || !/^https:\/\/[a-z0-9-]+\.up\.railway\.app\/defense\/judge$/iu.test(config.judgeIssuer)
       || typeof config.sampleMarker !== 'string'
@@ -44,6 +44,12 @@ export function deploymentIdentity(env, config) {
   if (config.step >= 5 && !originalApiUrl) {
     throw new Error('5단계부터 aleph.config.json의 originalApiUrl에 쿼리 없는 https 원본 자료 주소가 필요합니다. 비밀값은 넣지 마세요.');
   }
+  // 10단계부터 복원 경로(restoreRoute)를 싣습니다. '메서드 경로' 모양이고, 판정기가 허용하는 경로(allowedRoutes)에 있어야 합니다.
+  const restoreRoute = config.step >= 10 && typeof config.restoreRoute === 'string' && ROUTE.test(config.restoreRoute)
+    && allowedRoutes?.includes(config.restoreRoute) ? config.restoreRoute : null;
+  if (config.step >= 10 && !restoreRoute) {
+    throw new Error('10단계부터 aleph.config.json의 restoreRoute에 allowedRoutes에 있는 "POST /api/restore/:id" 같은 복원 경로가 필요합니다.');
+  }
   const identity = {
     schema: 'aleph.defense.deployment.v1',
     step: config.step,
@@ -53,8 +59,9 @@ export function deploymentIdentity(env, config) {
     judgeIssuer: config.judgeIssuer,
     sampleMarker: config.sampleMarker,
   };
-  // 2단계 이하의 형식은 그대로 두고, 3단계부터 허용 경로, 5단계부터 원본 자료 주소를 함께 싣습니다(심판이 읽는 곳).
+  // 2단계 이하의 형식은 그대로 두고, 3단계부터 허용 경로, 5단계부터 원본 자료 주소, 10단계부터 복원 경로를 함께 싣습니다(심판이 읽는 곳).
   if (allowedRoutes) identity.allowedRoutes = allowedRoutes;
   if (originalApiUrl) identity.originalApiUrl = originalApiUrl;
+  if (restoreRoute) identity.restoreRoute = restoreRoute;
   return identity;
 }
