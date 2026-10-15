@@ -2,6 +2,80 @@
 
 이 저장소는 1단계에서 학생 본인이 GitHub 저장소와 Vercel 배포를 만드는 출발점입니다. 포함된 메모 네 건은 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
+## 10단계 안전 사본 복원 절차(정리)
+
+복원은 두 가지입니다. ① 시험 정책(`aleph.config.json`의 허용 경로)을 안전 정책 사본으로 되돌리기, ② 비공개 가상 메모 사본(`public.notes_backup`)에서 메모 한 건 복원. 아래 순서를 지키고, **실행하지 않은 시험은 결과를 지어내지 말고 「미실행」으로 남깁니다.**
+
+### 1. 적용 전: 사본 버전 다시 검증
+
+| 사본 | 버전 표시 | 적용 직전에 다시 검증하는 것 | 실패하면 |
+|---|---|---|---|
+| 안전 정책 사본(JSON 파일) | 침해 전에 따로 기록해 둔 SHA-256 지문 | `npm run policy:restore`가 **실행할 때마다**(미리보기와 `--apply` 모두) 사본 파일의 SHA-256을 다시 계산해 기록한 지문과 비교하고, 형식(`aleph.policy.v1`)도 다시 확인 | 미리보기도 하지 않고 중단(종료 코드 1) |
+| 메모 사본(`notes_backup` 한 행) | `content_sha256`(제목 + 0x00 + 본문의 SHA-256), `backed_up_at` | 복원 요청마다 DB 함수가 같은 트랜잭션 안에서 ① 사본 ID = 경로 ID ② 사본 소유자 = 로그인한 사용자 ③ 사본 내용으로 다시 계산한 해시 = 저장된 해시 = 요청의 `contentSha256`을 확인 | 404·409로 거부하고 아무것도 바꾸지 않음(감사 기록만 한 줄) |
+
+- 지문은 사본 파일 안이 아니라 명령 인자로 받습니다. 사본을 바꾼 사람이 지문까지 다시 계산해 넣어도 기록과 달라 통과하지 못합니다.
+- 메모 사본을 적용하기 전에 SQL Editor에서 사본이 훼손되지 않았는지 직접 볼 수 있습니다(읽기만 함). `intact`가 `true`여야 합니다.
+  ```sql
+  select id, backed_up_at, content_sha256,
+         encode(sha256(convert_to(title, 'UTF8') || '\x00'::bytea || convert_to(content, 'UTF8')), 'hex') = content_sha256 as intact
+    from public.notes_backup;
+  ```
+- 시험 정책 되돌리기는 **미리보기 → 확인 코드로 실행** 두 번에 나눕니다. 확인 코드는 사본 지문·서비스·바뀌기 전후 허용 경로로 만들어서, 미리보기 뒤에 사본이나 설정이 바뀌면 코드가 맞지 않아 중단합니다.
+
+### 2. 변경 범위
+
+| 복원 | 바뀌는 것 | 바뀌지 않는 것 |
+|---|---|---|
+| ① 시험 정책 | `aleph.config.json`의 `allowedRoutes` 중 `--service`로 고른 서비스(`/api/<서비스>/…`)의 경로만. `audit/policy-restore.jsonl`에 한 줄 덧붙임(바뀐 것이 없으면 쓰지 않음) | 다른 서비스 경로와 순서, 설정의 다른 항목(`step`·`judgeIssuer` 등)과 줄바꿈, 판정기 규칙 코드(`src/decider.mjs`, 「! 직접 확인」으로만 알림), 기존 감사 줄, Supabase·Vercel 설정 |
+| ② 메모 한 건 | `public.notes`에서 그 ID 한 행의 제목·본문(지워졌으면 그 한 행을 다시 만듦). `public.notes_restore_audit`에 시도마다 한 줄 덧붙임 | 다른 메모, 지금 주인이 다른 사람인 메모(덮어쓰지 않음), `notes_backup`, 기존 감사 기록(서버 전용 키로도 수정·삭제 불가), 다른 테이블·권한 |
+
+- ①로 바뀐 설정과 감사 줄은 학생이 검토해 커밋·배포해야 반영됩니다. ②는 DB에 바로 반영됩니다.
+
+### 3. 복원 뒤: 정상·금지 요청 다시 시험
+
+배포가 Ready가 된 뒤 아래를 다시 시험합니다. 결과 칸에는 **실제로 보낸 요청의 응답만** 적습니다.
+
+**자동(`npm run bundle`의 자기 점검이 배포 주소에 실제로 보냄)**
+
+| 구분 | 점검 ID | 요청 | 기대 |
+|---|---|---|---|
+| 금지 | `anonymous_note_read` | `GET /data.json` | 메모가 보이지 않음 |
+| 금지 | `anonymous_notes_api_read`, `forged_token_notes_api_read` | 토큰 없이·엉터리 토큰으로 `GET /api/notes` | 401 `LOGIN_REQUIRED` |
+| 금지 | `anonymous_note_create`·`_update`·`_delete` | 토큰 없이 `POST /api/notes`, `PUT`·`DELETE /api/notes/<무작위 ID>` | 401 `LOGIN_REQUIRED` |
+| 금지 | `restore_anonymous_after_restore`, `restore_forged_token_after_restore` | 토큰 없이·엉터리 토큰으로 `POST /api/restore/<무작위 ID>` | 401 `LOGIN_REQUIRED` |
+| 금지 | `restore_cross_site_after_restore` | 다른 사이트 `Origin`으로 같은 요청 | 403 `CROSS_SITE_REQUEST` |
+| 금지 | `restore_wrong_method_after_restore` | `GET /api/restore/<무작위 ID>` | 405 `METHOD_NOT_ALLOWED` |
+| 정상 | `normal_screen_after_restore` | `GET /` | 200, 자료실 화면 |
+| 정상 | `normal_identity_after_restore` | `GET /aleph.json` | 200, 현재 `step`, 허용 경로에 `POST /api/restore/:id` |
+
+- 우리 앱의 JSON 오류 코드일 때만 「거부됨」입니다. 앱이 아닌 곳이 막은 401·403은 「판정 불가」, 그 밖은 「예상대로 거부되지 않음」으로 그대로 남습니다. 금지 요청은 무작위 ID와 0으로 채운 해시를 써서 실제 메모를 복원하지 않습니다.
+
+**로컬(키·네트워크 없이)**
+
+- `npm run policy:diff -- <사본> <지문>`: ①로 되돌린 서비스의 허용 경로 차이가 사라졌는지(다른 서비스·규칙 차이는 남아 있을 수 있음).
+- `node --test test/*.test.mjs`, `npm run decider:test`, `npm run detect:test`: 판정기·탐지 규칙이 그대로인지. 가상 요청 연습이며 심판 판정이 아닙니다.
+
+**학생이 직접(시험 계정 B·A로, 위 「시험 계정 B로만 확인하기」 순서)**
+
+- 정상: B가 자기 메모를 복원하면 200 `{ restored: true }`, 새로고침하면 사본 내용.
+- 금지: 해시를 바꾸면 409 `HASH_MISMATCH`, A가 같은 요청을 보내면 404 `NOT_FOUND`. 두 경우 모두 메모는 그대로.
+- 감사: `notes_restore_audit`에 시도마다 한 줄씩 쌓이고, A의 메모는 그대로.
+- 이 결과는 직접 본 것만 `bundle-notes.json`에 적습니다. 하지 않았으면 적지 않습니다.
+
+**미실행으로 남는 시험** (토큰·엔진 정보가 필요해 자기 점검이 요청을 보내지 않음. 결과 칸에 「미실행:」으로 남음)
+
+| 점검 ID | 이유 |
+|---|---|
+| `normal_login_notes_read` | 정상 로그인 토큰 필요 |
+| `other_owner_note_access` | 서로 다른 두 사용자의 토큰 필요 |
+| `direct_db_rest_access` | 로그인 토큰과 학습 DB 주소 필요(DB 권한은 SQL 확인 쿼리로 확인) |
+| `unregistered_device_notes_read` | 반 엔진의 기기 정보 필요(심판이 보냄) |
+| `step_up_reauth_notes_read` | 엔진의 다시 로그인 확인 계약이 아직 없음 |
+| `doppelganger_device_revocation` | 실제 회수와 걸린 시간은 심판이 확인 |
+| `restore_owner_flow_needs_login` | B·A 토큰과 사본 해시 필요(위 「학생이 직접」으로 확인) |
+
+- 이 작업 공간에서는 배포 주소와 실제 Supabase에 요청을 보낼 수 없어서, 위 자동 재시험과 B 계정 확인은 아직 실행하지 않았습니다(미실행). SQL은 로컬 PostgreSQL 16에서만 확인했습니다.
+
 ## 추가: 7단계 제작 1 「접속 정보의 출처를 구분합니다」(입력 검사만)
 
 **작동하는 기능**
