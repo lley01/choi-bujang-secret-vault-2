@@ -228,7 +228,7 @@ test('자기 점검: 실제 자료 차단·재판정은 요청을 보내지 않�
   globalThis.fetch = async (url) => { sent += 1; return String(url).endsWith('/data.json') ? new Response('not found', { status: 404 })
     : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401 }); };
   try {
-    const results = await runAttackChecks({ ...config, restoreRoute: null, publicAppUrl: 'https://student-defense.vercel.app/' }); // 10단계 복원 점검은 stage10에서 따로 시험
+    const results = await runAttackChecks({ ...config, step: 11, restoreRoute: null, publicAppUrl: 'https://student-defense.vercel.app/' }); // 10단계 복원·12단계 작전실 점검은 stage10·stage12에서 따로 시험
     assert.equal(sent, 6, '로그인 없는 요청 6건 외에는 보내지 않음');
     const item = results.find((entry) => entry.attackId === 'step_up_reauth_notes_read');
     assert.ok(item, '다시 로그인 점검 항목');

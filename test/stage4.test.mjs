@@ -27,9 +27,9 @@ test('소유자 검사 코드가 실제로 들어 있다(패치 파일만 있고
   }
 });
 
-test('배포 식별 정보는 4단계를 받아들이고 12단계 이상은 거부한다', () => {
+test('배포 식별 정보는 4단계를 받아들이고 13단계 이상은 거부한다', () => {
   assert.equal(deploymentIdentity(vercelEnv, { ...config, step: 4 }).step, 4);
-  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 12 }), /배포 식별 정보를 확인할 수 없습니다/u);
+  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 13 }), /배포 식별 정보를 확인할 수 없습니다/u);
 });
 
 test('4단계 자기 점검은 거부 점검 6건을 실제 응답대로 기록하고, 두 사용자 토큰이 필요한 점검은 미실행으로 남긴다', async () => {
@@ -47,7 +47,7 @@ test('4단계 자기 점검은 거부 점검 6건을 실제 응답대로 기록�
     for (const item of results.slice(-2)) assert.match(item.observed, /^미실행/u);
     assert.ok(results.length <= 20);
     for (const item of results) assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
-    await assert.rejects(runAttackChecks({ ...config, step: 12, publicAppUrl: 'https://student-defense.vercel.app/' }), /이 단계의 공격 점검/u);
+    await assert.rejects(runAttackChecks({ ...config, step: 13, publicAppUrl: 'https://student-defense.vercel.app/' }), /이 단계의 공격 점검/u);
   } finally {
     globalThis.fetch = originalFetch;
   }

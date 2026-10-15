@@ -6,3 +6,4 @@ node_modules/
 public/aleph.json
 public/vendor/
 aleph.config.json.restore-tmp
+matrix-evidence.json

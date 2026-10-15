@@ -9,16 +9,16 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 const page = read('public/index.html');
 const root = new URL('..', import.meta.url);
 
-test('설정은 11단계이고, 실제 빌드(Vercel 흉내)가 만든 /aleph.json도 11단계다', () => {
+test('설정은 11단계 이상이고, 실제 빌드(Vercel 흉내)가 만든 /aleph.json도 설정 단계다', () => {
   const config = JSON.parse(read('aleph.config.json'));
-  assert.equal(config.step, 11);
+  assert.ok(config.step >= 11);
   const output = new URL('../public/aleph.json', import.meta.url);
   try {
     execFileSync(process.execPath, ['scripts/build-public.mjs'], { cwd: root, stdio: 'pipe', env: { ...process.env,
       VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
       VERCEL_GIT_COMMIT_SHA: 'f'.repeat(40), VERCEL_URL: 'defense-app-mno345.vercel.app' } });
     const written = JSON.parse(readFileSync(output, 'utf8'));
-    assert.equal(written.step, 11);
+    assert.equal(written.step, config.step);
     assert.equal(written.restoreRoute, config.restoreRoute);
   } finally {
     rmSync(output, { force: true });

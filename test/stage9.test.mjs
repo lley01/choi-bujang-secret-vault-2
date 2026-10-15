@@ -8,13 +8,13 @@ import { deploymentIdentity } from '../scripts/deployment-identity.mjs';
 const AT = '2026-10-01T00:00:00.000Z';
 const event = (extra = {}) => ({ at: AT, method: 'GET', identity: { sub: 'learner_fixture' }, ...extra });
 
-test('설정은 9단계 이상이고 빌드·배포 식별이 9단계를 받으며 12단계는 거부한다', () => {
+test('설정은 9단계 이상이고 빌드·배포 식별이 9단계를 받으며 13단계는 거부한다', () => {
   const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
   assert.ok(config.step >= 9);
   const env = { VERCEL_GIT_PROVIDER: 'github', VERCEL_GIT_REPO_OWNER: 'student', VERCEL_GIT_REPO_SLUG: 'defense-app',
     VERCEL_GIT_COMMIT_SHA: 'c'.repeat(40), VERCEL_URL: 'defense-app-ghi789.vercel.app' };
   assert.equal(deploymentIdentity(env, { ...config, step: 9 }).step, 9);
-  assert.throws(() => deploymentIdentity(env, { ...config, step: 12 }), /배포 식별 정보를 확인할 수 없습니다/u);
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 13 }), /배포 식별 정보를 확인할 수 없습니다/u);
 });
 
 test('가명 사용자·기기·요청 종류·판정(과 시각, 9단계 제작 2의 네트워크)만 읽는다', () => {
@@ -218,7 +218,7 @@ test('자기 점검: 실제 회수와 시간은 심판이 확인하므로 요청
   globalThis.fetch = async (url) => { sent += 1; return String(url).endsWith('/data.json') ? new Response('not found', { status: 404 })
     : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401 }); };
   try {
-    const results = await runAttackChecks({ ...config, restoreRoute: null, publicAppUrl: 'https://student-defense.vercel.app/' }); // 10단계 복원 점검은 stage10에서 따로 시험
+    const results = await runAttackChecks({ ...config, step: 11, restoreRoute: null, publicAppUrl: 'https://student-defense.vercel.app/' }); // 10단계 복원·12단계 작전실 점검은 stage10·stage12에서 따로 시험
     assert.equal(sent, 6);
     const item = results.find((entry) => entry.attackId === 'doppelganger_device_revocation');
     assert.match(item.observed, /^미실행: 실제 회수와 걸린 시간은 심판이 확인함/u);

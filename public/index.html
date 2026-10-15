@@ -44,6 +44,14 @@
     .device dt { font-size: 14px; color: #8ad8df; font-weight: 700; }
     .device dd { margin: 0; font-size: 15px; color: #ecf4ff; }
     .device .offline { color: #ffe3e8; }
+    .ops h3 { margin: 18px 0 6px; font-size: 16px; }
+    .ops .badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; vertical-align: middle; }
+    .ops .badge.confirmed { color: #101a28; background: #8ad8df; }
+    .ops .badge.not_run { color: #ecf4ff; background: #2b405a; border: 1px solid #51667c; }
+    .ops .badge.unavailable { color: #ffe3e8; background: #7a2f3d; }
+    .ops .source { margin: 2px 0; font-size: 13px; color: #8fa6bf; }
+    .ops ul { margin: 6px 0 0; gap: 6px; }
+    .ops li { padding: 8px 12px; font-size: 14px; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
@@ -103,6 +111,14 @@
       </form>
       <p id="notes-error" class="error" role="alert" hidden></p>
       <ul id="notes" aria-live="polite"><li>로그인하면 가상 자료를 볼 수 있습니다.</li></ul>
+    </section>
+    <section class="panel ops" id="ops" aria-labelledby="ops-title" hidden>
+      <h2 id="ops-title">탈환 작전실</h2>
+      <p>서버(<code>/api/ops</code>)가 이번 요청에서 실제로 확인한 값만 「API로 확인」으로 보여 줍니다. 이 앱이 받을 수 없는 것은 「미실행」, 확인하려다 실패한 것은 「확인 실패」입니다. 메모 제목·본문은 표시하지 않습니다.</p>
+      <p class="source" id="ops-generated" role="status">불러오지 않았습니다.</p>
+      <div id="ops-body"></div>
+      <button id="ops-refresh" type="button" class="secondary">다시 불러오기</button>
+      <p id="ops-error" class="error" role="alert" hidden></p>
     </section>
   </main>
   <script>
@@ -428,17 +444,96 @@
         }
         return false;
       }
-      // 서버가 이 기기를 확인했을 때만 자료실(메모 목록·추가)을 엽니다. 아니면 보호 자료를 요청하지도 표시하지도 않습니다.
+      // 서버가 이 기기를 확인했을 때만 자료실(메모 목록·추가)과 탈환 작전실을 엽니다. 아니면 보호 자료를 요청하지도 표시하지도 않습니다.
       function applyAccess() {
         if (currentEmail && deviceConfirmed) {
           noteForm.hidden = false;
           loadNotes();
+          opsPanel.hidden = false;
+          loadOps();
         } else {
           loadId += 1;
+          opsId += 1;
           noteForm.hidden = true;
+          closeOps();
           if (currentEmail) showListMessage('이 기기가 서버에서 승인된 기기로 확인되면 자료실이 열립니다.');
         }
       }
+
+      // ── 12단계 탈환 작전실 ───────────────────────────────────────────
+      // /api/ops 응답의 status 만 보고 「API로 확인」·「미실행」·「확인 실패」를 붙입니다. 화면이 결과를 지어내지 않습니다.
+      // 메모 제목·본문은 서버가 보내지 않고, 화면도 메모 ID·시각·해시 앞자리만 씁니다. 모든 값은 textContent 로만 넣습니다.
+      const opsPanel = document.querySelector('#ops');
+      const opsBody = document.querySelector('#ops-body');
+      const opsGenerated = document.querySelector('#ops-generated');
+      const opsError = document.querySelector('#ops-error');
+      const opsRefresh = document.querySelector('#ops-refresh');
+      const BADGE = { confirmed: 'API로 확인', not_run: '미실행', unavailable: '확인 실패' };
+      let opsId = 0;
+      function closeOps() {
+        opsPanel.hidden = true;
+        opsBody.replaceChildren();
+        opsGenerated.textContent = '불러오지 않았습니다.';
+        opsError.hidden = true;
+      }
+      function opsBlock(title, part, lines) {
+        const wrap = document.createElement('div');
+        const heading = element('h3', title);
+        const status = Object.hasOwn(BADGE, part?.status) ? part.status : 'unavailable';
+        heading.append(element('span', BADGE[status], `badge ${status}`));
+        wrap.append(heading);
+        if (part?.source) wrap.append(element('p', `출처: ${part.source}`, 'source'));
+        if (part?.note) wrap.append(element('p', part.note, 'source'));
+        if (status !== 'confirmed') {
+          wrap.append(element('p', part?.reason ?? '서버 응답에 이 항목이 없습니다.', 'source'));
+          return wrap;
+        }
+        const items = lines.filter((line) => line !== null);
+        const listNode = document.createElement('ul');
+        listNode.append(...(items.length ? items : ['없음']).map((line) => element('li', line)));
+        wrap.append(listNode);
+        return wrap;
+      }
+      function renderOps(data) {
+        const { rules, detection, revocation, restore } = data ?? {};
+        const counts = revocation?.devices?.counts ?? {};
+        opsBody.replaceChildren(
+          opsBlock('판정기 규칙', rules, [
+            Array.isArray(rules?.deciderRules) ? `판정기: ${rules.deciderRules.join(', ')}` : null,
+            Array.isArray(rules?.detectionRules) ? `탐지·회수 이유 코드: ${rules.detectionRules.join(', ')}` : null,
+            Array.isArray(rules?.allowedRoutes) ? `허용 경로: ${rules.allowedRoutes.join(' · ')}` : null,
+            rules?.restoreRoute ? `복원 경로: ${rules.restoreRoute}` : null,
+            Number.isInteger(rules?.step) ? `단계: ${rules.step}` : null,
+          ]),
+          opsBlock('탐지 사건', detection, []),
+          opsBlock('회수 상태 — 내 기기 승인', revocation?.devices, [
+            `승인 ${counts.approved ?? 0} · 대기 ${counts.pending ?? 0} · 취소 ${counts.revoked ?? 0}`,
+          ]),
+          opsBlock('회수 상태 — 반 엔진의 기기 회수', revocation?.engine, []),
+          opsBlock('복구 버전 — 메모 사본', restore?.versions, (restore?.versions?.items ?? []).map((item) => `${item.noteId} · ${item.backedUpAt} · 해시 ${item.sha256Prefix}…`)),
+          opsBlock('복구 기록', restore?.audit, (restore?.audit?.items ?? []).map((item) => `${item.at} · ${item.noteId} · ${item.outcome}`)),
+          opsBlock('안전 정책 사본', restore?.policy, []),
+        );
+      }
+      async function loadOps() {
+        const myId = ++opsId;
+        opsError.hidden = true;
+        opsGenerated.textContent = '서버에서 불러오는 중입니다…';
+        try {
+          const data = await callApi('GET', '/api/ops');
+          if (myId !== opsId) return;
+          if (data?.schema !== 'aleph.ops.summary.v1') throw new ApiError('작전실 응답 형식이 맞지 않습니다.');
+          opsGenerated.textContent = `서버 확인 시각: ${data.generatedAt}`;
+          renderOps(data);
+        } catch (error) {
+          if (myId !== opsId) return;
+          opsBody.replaceChildren();
+          opsGenerated.textContent = '불러오지 못했습니다. 아래 항목은 확인되지 않았습니다.';
+          opsError.textContent = messageOf(error);
+          opsError.hidden = false;
+        }
+      }
+      opsRefresh.addEventListener('click', () => { if (currentEmail && deviceConfirmed) loadOps(); });
       const webauthnReady = () => window.isSecureContext && typeof window.PublicKeyCredential === 'function' && Boolean(navigator.credentials);
       async function deviceStep(button, run) {
         clearDeviceError();

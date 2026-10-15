@@ -32,7 +32,7 @@ test('브라우저 코드는 Supabase를 직접 부르지 않고(로그인 포�
   const authTargets = [...page.matchAll(/authRequest\('[A-Z]+', '([^']+)'/gu)].map((m) => m[1]);
   assert.deepEqual([...new Set(authTargets)].sort(), ['/api/auth/login', '/api/auth/logout', '/api/auth/session']);
   const fetchTargets = [...page.matchAll(/callApi\('[A-Z]+', [`']([^`']+)[`']/gu)].map((m) => m[1].replace(/\$\{[^}]+\}/u, ':id'));
-  assert.deepEqual([...new Set(fetchTargets)].sort(), ['/api/notes', '/api/notes/:id']);
+  assert.deepEqual([...new Set(fetchTargets)].sort(), ['/api/notes', '/api/notes/:id', '/api/ops'], '12단계부터 탈환 작전실 요약(/api/ops)도 서버 함수로만 부름');
 });
 
 // ── 5단계 저장점 ──
@@ -57,9 +57,9 @@ test('설정은 5단계 이상이고, bundle.mjs의 5단계 규칙(originalApiUr
   assert.ok(config.originalApiUrl.startsWith('https://'));
 });
 
-test('배포 식별 정보는 5단계를 받아들이고 12단계는 거부한다', () => {
+test('배포 식별 정보는 5단계를 받아들이고 13단계는 거부한다', () => {
   assert.equal(deploymentIdentity(vercelEnv, { ...config, step: 5 }).step, 5);
-  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 12 }), /배포 식별 정보를 확인할 수 없습니다/u);
+  assert.throws(() => deploymentIdentity(vercelEnv, { ...config, step: 13 }), /배포 식별 정보를 확인할 수 없습니다/u);
 });
 
 test('5단계 자기 점검: 우리 앱의 401 JSON만 거부로 적고, 요청 6건만 보내며 토큰이 필요한 점검 3건은 미실행', async () => {

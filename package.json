@@ -20,6 +20,7 @@
     "test:stage9": "node --test test/stage9.test.mjs",
     "test:stage10": "node --test test/stage10.test.mjs",
     "test:stage11": "node --test test/stage11.test.mjs test/stage11-device.test.mjs",
+    "test:stage12": "node --test test/stage12.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "decider:show": "node scripts/decider-show.mjs",
@@ -27,7 +28,10 @@
     "policy:diff": "node scripts/policy-diff.mjs",
     "policy:restore": "node scripts/policy-restore.mjs",
     "fixture:7": "node scripts/fixture-7.mjs",
-    "xdr:run": "node scripts/xdr-run.mjs"
+    "xdr:run": "node scripts/xdr-run.mjs",
+    "test:matrix": "node --test test/stage-matrix.test.mjs",
+    "matrix": "node scripts/stage-matrix.mjs",
+    "test:readme-ops": "node --test test/readme-ops.test.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -21,7 +21,7 @@ const noteList = (data) => (Array.isArray(data) ? data : data?.notes);
 const hasNotes = (data) => Array.isArray(noteList(data)) && noteList(data).length > 0;
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(config.step)) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -158,6 +158,16 @@ export async function runAttackChecks(config) {
         : `/aleph.json이 현재 설정과 다름 (HTTP ${identity.status}, step ${typeof identity.data?.step === 'number' ? identity.data.step : '없음'})` });
     results.push({ attackId: 'restore_owner_flow_needs_login', expected: '시험 계정 B가 자기 메모를 복원하면 200이고, 복원한 메모를 다시 읽으면 사본 내용이며, A가 같은 요청을 보내면 404',
       observed: '미실행: B·A의 로그인 토큰과 사본 해시가 필요해 이 점검에서는 요청을 보내지 않음(README의 B 계정 확인 순서로 직접 확인)' });
+  }
+  if (config.step >= 12) {
+    // 12단계: 탈환 작전실 요약(/api/ops)도 로그인 없이는 거부되어야 합니다. 실제로 보내고 받은 응답만 적습니다.
+    // 로그인·승인 기기로 연 작전실 화면의 내용은 토큰이 필요해 보내지 않습니다(README의 확인 순서로 직접 확인).
+    const ops = await readJson(new URL('/api/ops', app));
+    results.push({ attackId: 'ops_summary_anonymous', expected: '토큰 없이 GET /api/ops를 요청하면 요약 없이 401 LOGIN_REQUIRED로 거부됨',
+      observed: denied(ops) && !ops.data?.rules ? `토큰 없는 GET /api/ops가 거부됨 (HTTP ${ops.status} LOGIN_REQUIRED)`
+        : ops.data?.rules ? '토큰 없는 GET /api/ops가 요약을 돌려줌 (거부되지 않음)'
+          : blockedElsewhere(ops) ? `토큰 없는 GET /api/ops: ${elsewhere(ops)}`
+            : `토큰 없는 GET /api/ops가 예상대로 거부되지 않음 (HTTP ${ops.status})` });
   }
   return results;
 }
