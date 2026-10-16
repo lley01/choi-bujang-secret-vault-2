@@ -49,28 +49,17 @@ export async function runAttackChecks(config) {
   const forged = await readJson(new URL('/api/notes', app), { headers: { Authorization: 'Bearer aaaaaaaa.bbbbbbbb.cccccccc' } });
   // 쓰기 요청 점검(POST·PUT·DELETE /api/notes)은 배포 주소로 보내지 않습니다. 보내지 않았으므로 observed는 not_run 입니다.
   const json = { 'Content-Type': 'application/json' };
-  // 거부는 우리 앱이 보낸 401 JSON({ error: 'LOGIN_REQUIRED' })일 때만 인정합니다.
-  // 네트워크 프록시나 Vercel 로그인 보호 화면처럼 다른 곳이 막은 401·403은 앱의 거부가 아니므로 '판정 불가'로 적습니다.
-  const denied = (result) => !hasNotes(result.data) && result.status === 401 && result.data?.error === 'LOGIN_REQUIRED';
-  const blockedElsewhere = (result) => !denied(result) && !hasNotes(result.data) && (result.status === 401 || result.status === 403);
-  const elsewhere = (result) => `판정 불가: 앱이 아닌 곳(네트워크 프록시·배포 보호 화면 등)의 응답으로 보임 (HTTP ${result.status})`;
+  // 실제로 보낸 요청의 observed 는 받은 HTTP 응답 그대로입니다: 상태 코드와, JSON 본문에 오류 코드(error)가 있으면 그 코드.
+  // 해석·추측 문장은 쓰지 않고, 응답 본문(메모 등)은 적지 않습니다. 오류 코드는 영문·숫자·_ 모양일 때만 적습니다.
+  const httpObserved = (result) => `HTTP ${result.status}${typeof result.data?.error === 'string' && /^[A-Za-z0-9_]{1,60}$/u.test(result.data.error) ? ` ${result.data.error}` : ''}`;
   const writeCheck = (attackId, label) => ({ attackId, expected: `토큰 없이 ${label}을 보내면 자료 없이 거부됨(401)`, observed: 'not_run' });
   const results = [
     { attackId: 'anonymous_note_read', expected: '비로그인으로 옛 공개 /data.json을 요청해도 가상 메모가 보이지 않음',
-      // 우리 앱은 /data.json에 401·403을 주지 않습니다(파일이 없으면 404). 401·403은 다른 곳이 막은 것이라 판정 불가로 적습니다.
-      observed: hasNotes(legacy.data) ? '비로그인 요청에서 /data.json에 가상 메모가 아직 보임'
-        : (legacy.status === 401 || legacy.status === 403) ? `비로그인 요청 ${elsewhere(legacy)}`
-          : `비로그인 요청에서 /data.json에 가상 메모가 보이지 않음 (HTTP ${legacy.status})` },
+      observed: httpObserved(legacy) },
     { attackId: 'anonymous_notes_api_read', expected: '토큰 없이 /api/notes를 요청하면 자료 없이 거부됨(401)',
-      observed: denied(api) ? `토큰 없는 요청에서 /api/notes가 자료 없이 거부됨 (HTTP ${api.status})`
-        : hasNotes(api.data) ? '토큰 없는 요청에서 /api/notes가 가상 메모를 돌려줌 (거부되지 않음)'
-          : blockedElsewhere(api) ? `토큰 없는 요청 ${elsewhere(api)}`
-            : `토큰 없는 요청에서 자료는 없지만 거부 코드(401·403)가 아님 (HTTP ${api.status})` },
+      observed: httpObserved(api) },
     { attackId: 'forged_token_notes_api_read', expected: '엉터리 토큰으로 /api/notes를 요청하면 자료 없이 거부됨(401)',
-      observed: denied(forged) ? `엉터리 토큰 요청에서 /api/notes가 자료 없이 거부됨 (HTTP ${forged.status})`
-        : hasNotes(forged.data) ? '엉터리 토큰 요청에서 /api/notes가 가상 메모를 돌려줌 (거부되지 않음)'
-          : blockedElsewhere(forged) ? `엉터리 토큰 요청 ${elsewhere(forged)}`
-            : `엉터리 토큰 요청에서 자료는 없지만 거부 코드(401·403)가 아님 (HTTP ${forged.status})` },
+      observed: httpObserved(forged) },
     writeCheck('anonymous_note_create', 'POST /api/notes'),
     writeCheck('anonymous_note_update', 'PUT /api/notes/:id'),
     writeCheck('anonymous_note_delete', 'DELETE /api/notes/:id'),
@@ -129,32 +118,22 @@ export async function runAttackChecks(config) {
       ['restore_wrong_method_after_restore', 'GET /api/restore/:id', await restoreTry({}, 'GET'), 405, 'METHOD_NOT_ALLOWED'],
     ];
     for (const [attackId, label, result, status, error] of forbidden) {
-      const ours = result.status === status && result.data?.error === error;
       results.push({ attackId, expected: `복원 뒤 ${label}을 보내면 ${status} ${error}로 거부되고 아무것도 복원되지 않음`,
-        observed: ours ? `${label}이 거부됨 (HTTP ${result.status} ${error})`
-          : (result.status === 401 || result.status === 403) && !result.data?.error ? `${label}: ${elsewhere(result)}`
-            : `${label}이 예상대로 거부되지 않음 (HTTP ${result.status}${typeof result.data?.error === 'string' ? ` ${result.data.error.slice(0, 40)}` : ''})` });
+        observed: httpObserved(result) });
     }
-    let screen = 0;
+    // 첫 화면은 HTML이라 상태 코드만 적습니다. 응답을 받지 못하면(네트워크 오류) HTTP 상태가 없으므로 그 사실만 적습니다.
+    let screen;
     try {
       const response = await fetch(new URL('/', app), { redirect: 'error', signal: AbortSignal.timeout(10000) });
-      screen = response.status;
-      const text = await response.text();
-      screen = response.ok && text.includes('<title>BYTE BACK') ? 200 : -response.status;
+      screen = `HTTP ${response.status}`;
     } catch {
-      screen = 0;
+      screen = '요청 실패(HTTP 응답 없음)';
     }
     results.push({ attackId: 'normal_screen_after_restore', expected: '복원 뒤 로그인 없이 첫 화면(/)을 열면 200과 자료실 화면이 옴',
-      observed: screen === 200 ? '첫 화면이 열림 (HTTP 200, 자료실 화면 제목 확인)'
-        : screen === 0 ? '첫 화면 요청 실패(네트워크 오류)' : `첫 화면이 자료실 화면이 아님 (HTTP ${Math.abs(screen)})` });
+      observed: screen });
     const identity = await readJson(new URL('/aleph.json', app));
-    // 10단계부터 /aleph.json에 restoreRoute도 실리므로 함께 확인합니다.
-    const deployed = identity.status === 200 && identity.data?.step === config.step
-      && Array.isArray(identity.data?.allowedRoutes) && identity.data.allowedRoutes.includes('POST /api/restore/:id')
-      && (config.step < 10 || identity.data?.restoreRoute === config.restoreRoute);
     results.push({ attackId: 'normal_identity_after_restore', expected: '복원 뒤 /aleph.json에 현재 단계와 복원 경로(허용 경로, 10단계부터 restoreRoute)가 실림',
-      observed: deployed ? `/aleph.json에 step ${identity.data.step}과 복원 경로가 실림 (HTTP 200)`
-        : `/aleph.json이 현재 설정과 다름 (HTTP ${identity.status}, step ${typeof identity.data?.step === 'number' ? identity.data.step : '없음'})` });
+      observed: httpObserved(identity) });
     results.push({ attackId: 'restore_owner_flow_needs_login', expected: '시험 계정 B가 자기 메모를 복원하면 200이고, 복원한 메모를 다시 읽으면 사본 내용이며, A가 같은 요청을 보내면 404',
       observed: '미실행: B·A의 로그인 토큰과 사본 해시가 필요해 이 점검에서는 요청을 보내지 않음(README의 B 계정 확인 순서로 직접 확인)' });
   }
@@ -163,10 +142,7 @@ export async function runAttackChecks(config) {
     // 로그인·승인 기기로 연 작전실 화면의 내용은 토큰이 필요해 보내지 않습니다(README의 확인 순서로 직접 확인).
     const ops = await readJson(new URL('/api/ops', app));
     results.push({ attackId: 'ops_summary_anonymous', expected: '토큰 없이 GET /api/ops를 요청하면 요약 없이 401 LOGIN_REQUIRED로 거부됨',
-      observed: denied(ops) && !ops.data?.rules ? `토큰 없는 GET /api/ops가 거부됨 (HTTP ${ops.status} LOGIN_REQUIRED)`
-        : ops.data?.rules ? '토큰 없는 GET /api/ops가 요약을 돌려줌 (거부되지 않음)'
-          : blockedElsewhere(ops) ? `토큰 없는 GET /api/ops: ${elsewhere(ops)}`
-            : `토큰 없는 GET /api/ops가 예상대로 거부되지 않음 (HTTP ${ops.status})` });
+      observed: httpObserved(ops) });
   }
   return results;
 }
