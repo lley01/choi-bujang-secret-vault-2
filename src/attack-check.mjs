@@ -76,34 +76,34 @@ export async function runAttackChecks(config) {
   if (config.step >= 3) {
     // 정상 로그인 요청은 학생 비밀번호나 심판이 발급한 토큰이 있어야 보낼 수 있습니다. 보내지 않았으므로 성공으로 쓰지 않고 미실행으로 남깁니다.
     results.push({ attackId: 'normal_login_notes_read', expected: '정상 로그인(심판 A 또는 학생)으로 /api/notes를 요청하면 자기 메모 목록을 받음',
-      observed: '미실행: 로그인 토큰이 필요해 이 점검에서는 요청을 보내지 않음' });
+      observed: 'not_run' }); // 보내지 않음: 로그인 토큰이 필요해 이 점검에서는 요청을 보내지 않음
   }
   if (config.step >= 4) {
     // 소유자 검사는 서로 다른 두 사용자의 로그인 토큰이 있어야 확인할 수 있습니다. 보내지 않았으므로 미실행으로 남깁니다.
     results.push({ attackId: 'other_owner_note_access', expected: '로그인한 B가 A의 메모 id로 GET·PUT·DELETE를 보내면 404로 거부되고 A의 메모는 그대로',
-      observed: '미실행: 서로 다른 두 사용자의 로그인 토큰이 필요해 이 점검에서는 요청을 보내지 않음' });
+      observed: 'not_run' }); // 보내지 않음: 서로 다른 두 사용자의 로그인 토큰이 필요해 이 점검에서는 요청을 보내지 않음
   }
   if (config.step >= 5) {
     // 학습 DB의 Supabase REST를 직접 부르는 길은 로그인 토큰과 학습 DB 주소가 있어야 시험할 수 있습니다. 보내지 않았으므로 미실행으로 남깁니다.
     results.push({ attackId: 'direct_db_rest_access', expected: '로그인 토큰이나 publishable key로 학습 DB의 /rest/v1/notes를 직접 부르면 권한 없음으로 거부되고 메모는 서버 함수로만 다룸',
-      observed: '미실행: 로그인 토큰과 학습 DB 주소가 필요해 이 점검에서는 요청을 보내지 않음(DB 권한은 SQL 확인 쿼리로 확인)' });
+      observed: 'not_run' }); // 보내지 않음: 로그인 토큰과 학습 DB 주소가 필요해 이 점검에서는 요청을 보내지 않음(DB 권한은 SQL 확인 쿼리로 확인)
   }
   if (config.step >= 6) {
     // 미등록 기기 요청은 반 엔진이 확인한 기기 정보로만 만들 수 있어 심판이 보냅니다. 여기서는 보내지 않았으므로 미실행으로 남깁니다.
     results.push({ attackId: 'unregistered_device_notes_read', expected: '미등록 기기(deviceRegistered: false)의 자료실 요청은 판정기가 deny·device_not_registered로 거부',
-      observed: '미실행: 미등록 기기 요청은 반 엔진의 기기 정보가 필요해 심판이 보냄(이 점검에서는 요청을 보내지 않음)' });
+      observed: 'not_run' }); // 보내지 않음: 미등록 기기 요청은 반 엔진의 기기 정보가 필요해 심판이 보냄(이 점검에서는 요청을 보내지 않음)
   }
   if (config.step >= 6 && RULE_IDS.includes('step_up_required')) {
     // 7단계: 제공 엔진이 "같은 내 로그인으로 다시 로그인한 시각"을 확인해 넘기는 계약이 저장소에 없습니다
     // (판정 요청의 stepUp에는 나이만 있고 같은 로그인에 묶는다는 내용, 다시 로그인 흐름, 앱 연결 계약이 없음).
     // 그래서 실제 자료 차단과 새 로그인 뒤 재판정은 보내지 않고 미실행으로 남깁니다. 토큰은 만들거나 기록하지 않습니다.
     results.push({ attackId: 'step_up_reauth_notes_read', expected: '복합 이상 접속은 다시 로그인 전 자료를 막고(step_up), 같은 로그인으로 다시 로그인한 뒤의 새 요청만 다시 판정해 허용',
-      observed: '미실행: 제공 엔진의 다시 로그인 시각 확인 계약이 아직 없어 실제 자료 차단·재판정을 실측하지 않음(가상 사건 규칙만 npm run test:stage7로 시험)' });
+      observed: 'not_run' }); // 보내지 않음: 제공 엔진의 다시 로그인 시각 확인 계약이 아직 없어 실제 자료 차단·재판정을 실측하지 않음(가상 사건 규칙만 npm run test:stage7로 시험)
   }
   if (config.step >= 9) {
     // 9단계: 탐지는 회수 제안(propose_revocation)만 만듭니다. 실제 기기 권한 회수와 걸린 시간은 심판이 확인하므로 여기서는 요청을 보내지 않습니다.
     results.push({ attackId: 'doppelganger_device_revocation', expected: '다른 네트워크 + 10분 안 다량 조회가 한 기기에서 나오면 그 기기 하나의 회수를 제안하고, 회수 뒤 그 기기의 자료 요청은 거부',
-      observed: '미실행: 실제 회수와 걸린 시간은 심판이 확인함(탐지 제안만 npm run test:stage9로 시험, 이 점검에서는 요청을 보내지 않음)' });
+      observed: 'not_run' }); // 보내지 않음: 실제 회수와 걸린 시간은 심판이 확인함(탐지 제안만 npm run test:stage9로 시험, 이 점검에서는 요청을 보내지 않음)
   }
   if (config.step >= 9 && config.restoreRoute === 'POST /api/restore/:id') {
     // 10단계: 복원 뒤 다시 시험합니다. 이 점검은 복원을 마친 배포 주소에 실제로 요청을 보내고, 받은 응답만 결과로 적습니다.
@@ -144,7 +144,7 @@ export async function runAttackChecks(config) {
     results.push({ attackId: 'normal_identity_after_restore', expected: '복원 뒤 /aleph.json에 현재 단계와 복원 경로(허용 경로, 10단계부터 restoreRoute)가 실림',
       observed: httpObserved(identity) });
     results.push({ attackId: 'restore_owner_flow_needs_login', expected: '시험 계정 B가 자기 메모를 복원하면 200이고, 복원한 메모를 다시 읽으면 사본 내용이며, A가 같은 요청을 보내면 404',
-      observed: '미실행: B·A의 로그인 토큰과 사본 해시가 필요해 이 점검에서는 요청을 보내지 않음(README의 B 계정 확인 순서로 직접 확인)' });
+      observed: 'not_run' }); // 보내지 않음: B·A의 로그인 토큰과 사본 해시가 필요해 이 점검에서는 요청을 보내지 않음(README의 B 계정 확인 순서로 직접 확인)
   }
   if (config.step >= 12) {
     // 12단계: 탈환 작전실 요약(/api/ops)도 로그인 없이는 거부되어야 합니다. 실제로 보내고 받은 응답만 적습니다.
