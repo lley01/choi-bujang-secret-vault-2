@@ -116,10 +116,16 @@ export async function runAttackChecks(config) {
     const target = new URL(`/api/restore/${randomUUID()}`, app);
     const body = JSON.stringify({ contentSha256: '0'.repeat(64) });
     const restoreTry = (headers, method = 'POST') => readJson(target, { method, headers: { ...json, ...headers }, ...(method === 'POST' ? { body } : {}) });
+    // 쓰기가 필요한 POST 복원 점검 3건은 배포 주소로 보내지 않습니다. 보내지 않았으므로 observed는 not_run 입니다.
+    const notSent = [
+      ['restore_anonymous_after_restore', '토큰 없이 POST /api/restore/:id', 401, 'LOGIN_REQUIRED'],
+      ['restore_forged_token_after_restore', '엉터리 토큰으로 POST /api/restore/:id', 401, 'LOGIN_REQUIRED'],
+      ['restore_cross_site_after_restore', '다른 사이트 Origin으로 POST /api/restore/:id', 403, 'CROSS_SITE_REQUEST'],
+    ];
+    for (const [attackId, label, status, error] of notSent) {
+      results.push({ attackId, expected: `복원 뒤 ${label}을 보내면 ${status} ${error}로 거부되고 아무것도 복원되지 않음`, observed: 'not_run' });
+    }
     const forbidden = [
-      ['restore_anonymous_after_restore', '토큰 없이 POST /api/restore/:id', await restoreTry({}), 401, 'LOGIN_REQUIRED'],
-      ['restore_forged_token_after_restore', '엉터리 토큰으로 POST /api/restore/:id', await restoreTry({ Authorization: 'Bearer aaaaaaaa.bbbbbbbb.cccccccc' }), 401, 'LOGIN_REQUIRED'],
-      ['restore_cross_site_after_restore', '다른 사이트 Origin으로 POST /api/restore/:id', await restoreTry({ Origin: 'https://attacker.invalid' }), 403, 'CROSS_SITE_REQUEST'],
       ['restore_wrong_method_after_restore', 'GET /api/restore/:id', await restoreTry({}, 'GET'), 405, 'METHOD_NOT_ALLOWED'],
     ];
     for (const [attackId, label, result, status, error] of forbidden) {
